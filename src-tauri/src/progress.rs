@@ -211,7 +211,12 @@ mod tests {
     fn finished_reports_once_and_unregisters() {
         let recorder = Recorder::default();
         let jobs = JobRegistry::default();
-        let guard = ProgressGuard::start(recorder.clone(), &jobs, "report_a".into(), ProgressStage::Engine);
+        let guard = ProgressGuard::start(
+            recorder.clone(),
+            &jobs,
+            "report_a".into(),
+            ProgressStage::Engine,
+        );
         let token = guard.cancel_token();
         guard.progress(50.0).unwrap();
         guard.finished().unwrap();
@@ -230,9 +235,17 @@ mod tests {
     fn cancelled_reports_cancelled() {
         let recorder = Recorder::default();
         let jobs = JobRegistry::default();
-        let guard = ProgressGuard::start(recorder.clone(), &jobs, "report_a".into(), ProgressStage::Engine);
+        let guard = ProgressGuard::start(
+            recorder.clone(),
+            &jobs,
+            "report_a".into(),
+            ProgressStage::Engine,
+        );
         guard.cancelled().unwrap();
-        assert_eq!(recorder.statuses(), vec![(true, Some(ProgressStatus::Cancelled))]);
+        assert_eq!(
+            recorder.statuses(),
+            vec![(true, Some(ProgressStatus::Cancelled))]
+        );
     }
 
     #[test]
@@ -240,12 +253,19 @@ mod tests {
         let recorder = Recorder::default();
         let jobs = JobRegistry::default();
         let fails = || -> Result<(), Error> {
-            let _guard =
-                ProgressGuard::start(recorder.clone(), &jobs, "report_a".into(), ProgressStage::Engine);
+            let _guard = ProgressGuard::start(
+                recorder.clone(),
+                &jobs,
+                "report_a".into(),
+                ProgressStage::Engine,
+            );
             Err(Error::EngineDisconnected)
         };
         assert!(fails().is_err());
-        assert_eq!(recorder.statuses(), vec![(true, Some(ProgressStatus::Failed))]);
+        assert_eq!(
+            recorder.statuses(),
+            vec![(true, Some(ProgressStatus::Failed))]
+        );
         assert!(!jobs.cancel("report_a"));
     }
 
@@ -253,9 +273,19 @@ mod tests {
     fn a_replaced_run_does_not_unregister_its_successor() {
         let recorder = Recorder::default();
         let jobs = JobRegistry::default();
-        let first = ProgressGuard::start(recorder.clone(), &jobs, "report_a".into(), ProgressStage::Engine);
+        let first = ProgressGuard::start(
+            recorder.clone(),
+            &jobs,
+            "report_a".into(),
+            ProgressStage::Engine,
+        );
         let first_token = first.cancel_token();
-        let second = ProgressGuard::start(recorder.clone(), &jobs, "report_a".into(), ProgressStage::Engine);
+        let second = ProgressGuard::start(
+            recorder.clone(),
+            &jobs,
+            "report_a".into(),
+            ProgressStage::Engine,
+        );
         assert!(is_cancelled(&first_token));
         first.cancelled().unwrap();
         assert!(jobs.cancel("report_a"));
