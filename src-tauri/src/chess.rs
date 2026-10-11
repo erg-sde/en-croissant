@@ -475,6 +475,10 @@ pub struct MoveAnalysis {
     best: Vec<BestMoves>,
     novelty: bool,
     is_sacrifice: bool,
+    /// The position that was analysed: the root for index 0, otherwise the position after move i.
+    fen: String,
+    /// The game is over in this position; it was not searched and `best` is empty.
+    terminal: bool,
 }
 
 #[derive(Deserialize, Debug, Default, Type)]
@@ -485,6 +489,54 @@ pub struct AnalysisOptions {
     pub annotate_novelties: bool,
     pub reference_db: Option<PathBuf>,
     pub reversed: bool,
+    /// Lines searched per position, clamped to 2..=4. Defaults to 2.
+    #[serde(default)]
+    pub multipv: Option<u16>,
+}
+
+const DEFAULT_REPORT_MULTIPV: u16 = 2;
+
+fn report_multipv(requested: Option<u16>) -> u16 {
+    requested.unwrap_or(DEFAULT_REPORT_MULTIPV).clamp(2, 4)
+}
+
+/// One position of a report: the position reached by `moves` from the root.
+#[derive(Debug)]
+struct ReportPosition {
+    fen: Fen,
+    moves: Vec<String>,
+    is_sacrifice: bool,
+    terminal: bool,
+}
+
+/// The root and the position after each move, in game order. FENs are normalized
+/// (`EnPassantMode::Legal`, counters as replayed), and game-over positions are included and marked
+/// so the report keeps one entry per position.
+fn report_positions(fen: &str, moves: &[String]) -> Result<Vec<ReportPosition>, Error> {
+    let setup = Fen::from_ascii(fen.as_bytes())?.into_setup();
+    let castling_mode = CastlingMode::detect(&setup);
+    let mut chess: Chess = setup.position(castling_mode)?;
+
+    let mut positions = vec![ReportPosition {
+        fen: Fen::from_position(chess.clone(), EnPassantMode::Legal),
+        moves: vec![],
+        is_sacrifice: false,
+        terminal: chess.is_game_over(),
+    }];
+    for (i, m) in moves.iter().enumerate() {
+        let m = UciMove::from_ascii(m.as_bytes())?.to_move(&chess)?;
+        let previous_pos = chess.clone();
+        chess.play_unchecked(&m);
+        let terminal = chess.is_game_over();
+        let is_sacrifice = !terminal && naive_eval(&previous_pos) > -naive_eval(&chess) + 100;
+        positions.push(ReportPosition {
+            fen: Fen::from_position(chess.clone(), EnPassantMode::Legal),
+            moves: moves[..=i].to_vec(),
+            is_sacrifice,
+            terminal,
+        });
+    }
+    Ok(positions)
 }
 
 /// Assembles complete MultiPV sets from a stream of `info` lines, keeping exact lines only.
@@ -628,67 +680,42 @@ pub async fn analyze_game(
     );
     let mut cancel = guard.cancel_token();
 
+    let mut positions = report_positions(&options.fen, &options.moves)?;
+    if options.reversed {
+        positions.reverse();
+    }
+
     let path = PathBuf::from(&engine);
     let mut analysis: Vec<MoveAnalysis> = Vec::new();
 
     let (mut proc, mut reader) = EngineProcess::new(path).await?;
 
-    let fen = Fen::from_ascii(options.fen.as_bytes())?;
-    let setup = fen.as_setup().clone();
-    let castling_mode = CastlingMode::detect(&setup);
-
-    let mut chess: Chess = setup.position(castling_mode)?;
-    let mut fens: Vec<(Fen, Vec<String>, bool)> = vec![(fen, vec![], false)];
-
-    options
-        .moves
-        .iter()
-        .enumerate()
-        .try_for_each(|(i, m)| -> Result<(), Error> {
-            let uci = UciMove::from_ascii(m.as_bytes())?;
-            let m = uci.to_move(&chess)?;
-            let previous_pos = chess.clone();
-            chess.play_unchecked(&m);
-            let current_pos = chess.clone();
-            if !chess.is_game_over() {
-                let prev_eval = naive_eval(&previous_pos);
-                let cur_eval = -naive_eval(&current_pos);
-                fens.push((
-                    Fen::from_position(current_pos, EnPassantMode::Legal),
-                    options.moves.clone().into_iter().take(i + 1).collect(),
-                    prev_eval > cur_eval + 100,
-                ));
-            }
-            Ok(())
-        })?;
-
-    if options.reversed {
-        fens.reverse();
-    }
+    let mut extra_options: Vec<EngineOption> = uci_options
+        .into_iter()
+        .filter(|x| x.name != "MultiPV")
+        .collect();
+    extra_options.push(EngineOption {
+        name: "MultiPV".to_string(),
+        value: report_multipv(options.multipv).to_string(),
+    });
 
     let mut novelty_found = false;
 
-    for (i, (_, moves, _)) in fens.iter().enumerate() {
-        guard.progress((i as f32 / fens.len() as f32) * 100.0)?;
+    for (i, position) in positions.iter().enumerate() {
+        guard.progress((i as f32 / positions.len() as f32) * 100.0)?;
 
-        let mut extra_options = uci_options.clone();
-        if !extra_options.iter().any(|x| x.name == "MultiPV") {
-            extra_options.push(EngineOption {
-                name: "MultiPV".to_string(),
-                value: "2".to_string(),
+        if position.terminal {
+            analysis.push(MoveAnalysis {
+                terminal: true,
+                ..Default::default()
             });
-        } else {
-            extra_options.iter_mut().for_each(|x| {
-                if x.name == "MultiPV" {
-                    x.value = "2".to_string();
-                }
-            });
+            continue;
         }
 
         proc.set_options(EngineOptions {
             fen: options.fen.clone(),
-            moves: moves.clone(),
-            extra_options,
+            moves: position.moves.clone(),
+            extra_options: extra_options.clone(),
         })
         .await?;
 
@@ -710,18 +737,22 @@ pub async fn analyze_game(
 
     if options.reversed {
         analysis.reverse();
-        fens.reverse();
+        positions.reverse();
     }
 
-    for (i, analysis) in analysis.iter_mut().enumerate() {
-        let fen = &fens[i].0;
+    for (analysis, position) in analysis.iter_mut().zip(&positions) {
+        analysis.fen = position.fen.to_string();
+        analysis.is_sacrifice = position.is_sacrifice;
+        if position.terminal {
+            continue;
+        }
+
         // let query = PositionQuery::exact_from_fen(&fen.to_string())?;
         let query = PositionQueryJs {
-            fen: fen.to_string(),
+            fen: analysis.fen.clone(),
             type_: "exact".to_string(),
         };
 
-        analysis.is_sacrifice = fens[i].2;
         if options.annotate_novelties && !novelty_found {
             if let Some(reference) = options.reference_db.clone() {
                 analysis.novelty = !is_position_in_db(
@@ -977,6 +1008,60 @@ mod tests {
             ],
         );
         assert!(best.is_empty());
+    }
+
+    fn uci(moves: &str) -> Vec<String> {
+        moves.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn report_positions_cover_root_and_every_move() {
+        let positions = report_positions(START, &uci("e2e4 e7e5 g1f3")).unwrap();
+        let fens: Vec<String> = positions.iter().map(|p| p.fen.to_string()).collect();
+        assert_eq!(
+            fens,
+            [
+                START,
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+            ]
+        );
+        assert_eq!(positions[2].moves, uci("e2e4 e7e5"));
+        assert!(positions.iter().all(|p| !p.terminal));
+    }
+
+    #[test]
+    fn report_positions_normalize_the_root_fen() {
+        // No counters and an en passant square without a legal capture.
+        let root = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3";
+        let positions = report_positions(root, &[]).unwrap();
+        assert_eq!(
+            positions[0].fen.to_string(),
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+        );
+    }
+
+    #[test]
+    fn report_positions_keep_the_final_game_over_position() {
+        let positions = report_positions(START, &uci("f2f3 e7e5 g2g4 d8h4")).unwrap();
+        assert_eq!(positions.len(), 5);
+        assert!(positions[4].terminal);
+        assert!(!positions[4].is_sacrifice);
+        assert!(positions[..4].iter().all(|p| !p.terminal));
+    }
+
+    #[test]
+    fn report_positions_reject_an_illegal_move() {
+        assert!(report_positions(START, &uci("e2e5")).is_err());
+    }
+
+    #[test]
+    fn report_multipv_defaults_to_two_and_is_clamped() {
+        assert_eq!(report_multipv(None), 2);
+        assert_eq!(report_multipv(Some(1)), 2);
+        assert_eq!(report_multipv(Some(3)), 3);
+        assert_eq!(report_multipv(Some(9)), 4);
     }
 
     /// A UCI engine for the tests below, from `EC_TEST_ENGINE`. Run them with
