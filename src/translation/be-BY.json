@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Не прааналізавана",
     "Board.Analysis.RefDBRequired": "Не абрана база дадзеных. Спачатку выберыце базу дадзеных на старонцы баз дадзеных.",
     "Board.Analysis.Report": "Справаздача",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Справаздача створана",
     "Board.Analysis.Reversed": "Зваротны аналіз",
     "Board.Analysis.Reversed.Desc": "Аналізаваць гульню з апошняй пазіцыі.",

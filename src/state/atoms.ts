@@ -240,6 +240,17 @@ export const addRecentFileAtom = atom(null, (get, set, file: Omit<RecentFile, "l
 
 export const referenceDbAtom = atomWithStorage<string | null>("reference-database", null);
 
+// Report
+
+/** The "Generate report" form. `engine` is an engine id, not a path. */
+export const reportSettingsAtom = atomWithStorage("report-settings", {
+    novelty: true,
+    reversed: true,
+    variations: true,
+    goMode: { t: "Time", c: 500 } as Exclude<GoMode, { t: "Infinite" }>,
+    engine: "",
+});
+
 export const selectedPuzzleDbAtom = atomWithStorage<string | null>("puzzle-db", null);
 
 export type DatabaseConversionState = {

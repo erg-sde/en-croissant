@@ -1,11 +1,8 @@
 use std::{
     fmt::Display,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Instant,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use derivative::Derivative;
@@ -19,7 +16,7 @@ use shakmaty::{
 };
 use specta::Type;
 use tauri_specta::Event;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 use vampirc_uci::{
     parse_one,
     uci::{Score, ScoreValue},
@@ -32,7 +29,8 @@ use crate::{
         parse_fen_and_apply_moves, BaseEngine, EngineLog, EngineOption, EngineReader, GoMode,
     },
     error::Error,
-    progress::update_progress,
+    jobs::is_cancelled,
+    progress::{AppProgress, ProgressGuard, ProgressStage},
     AppState,
 };
 
@@ -190,11 +188,26 @@ fn invert_score(score: Score) -> Score {
     }
 }
 
+/// Whether a UCI score is exact or a fail-high/fail-low bound from an interrupted search.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bound {
+    Exact,
+    Lower,
+    Upper,
+}
+
+/// One parsed `info` line. Bound lines carry an unreliable score and a truncated PV.
+#[derive(Debug)]
+struct ParsedLine {
+    line: BestMoves,
+    bound: Bound,
+}
+
 fn parse_uci_attrs(
     attrs: Vec<UciInfoAttribute>,
     fen: &Fen,
     moves: &[String],
-) -> Result<BestMoves, Error> {
+) -> Result<ParsedLine, Error> {
     let mut best_moves = BestMoves::default();
 
     let mut pos = parse_fen_and_apply_moves(&fen.to_string(), moves)?;
@@ -234,11 +247,22 @@ fn parse_uci_attrs(
         return Err(Error::NoMovesFound);
     }
 
+    let bound = if best_moves.score.lower_bound == Some(true) {
+        Bound::Lower
+    } else if best_moves.score.upper_bound == Some(true) {
+        Bound::Upper
+    } else {
+        Bound::Exact
+    };
+
     if turn == Color::Black {
         best_moves.score = invert_score(best_moves.score);
     }
 
-    Ok(best_moves)
+    Ok(ParsedLine {
+        line: best_moves,
+        bound,
+    })
 }
 
 #[derive(Deserialize, Debug, Clone, Type, Derivative, Eq, PartialEq)]
@@ -369,10 +393,11 @@ pub async fn get_best_moves(
         match parse_one(&line) {
             UciMessage::Info(attrs) => {
                 match parse_uci_attrs(attrs, &proc.options.fen.parse()?, &proc.options.moves) {
-                    Ok(best_moves) => {
-                        if best_moves.score.lower_bound == Some(true)
-                            || best_moves.score.upper_bound == Some(true)
-                        {
+                    Ok(ParsedLine {
+                        line: best_moves,
+                        bound,
+                    }) => {
+                        if bound != Bound::Exact {
                             continue;
                         }
                         let multipv = best_moves.multipv;
@@ -450,6 +475,10 @@ pub struct MoveAnalysis {
     best: Vec<BestMoves>,
     novelty: bool,
     is_sacrifice: bool,
+    /// The position that was analysed: the root for index 0, otherwise the position after move i.
+    fen: String,
+    /// The game is over in this position; it was not searched and `best` is empty.
+    terminal: bool,
 }
 
 #[derive(Deserialize, Debug, Default, Type)]
@@ -460,14 +489,172 @@ pub struct AnalysisOptions {
     pub annotate_novelties: bool,
     pub reference_db: Option<PathBuf>,
     pub reversed: bool,
+    /// Lines searched per position, clamped to 2..=4. Defaults to 2.
+    #[serde(default)]
+    pub multipv: Option<u16>,
+}
+
+const DEFAULT_REPORT_MULTIPV: u16 = 2;
+
+fn report_multipv(requested: Option<u16>) -> u16 {
+    requested.unwrap_or(DEFAULT_REPORT_MULTIPV).clamp(2, 4)
+}
+
+/// One position of a report: the position reached by `moves` from the root.
+#[derive(Debug)]
+struct ReportPosition {
+    fen: Fen,
+    moves: Vec<String>,
+    is_sacrifice: bool,
+    terminal: bool,
+}
+
+/// The root and the position after each move, in game order. FENs are normalized
+/// (`EnPassantMode::Legal`, counters as replayed), and game-over positions are included and marked
+/// so the report keeps one entry per position.
+fn report_positions(fen: &str, moves: &[String]) -> Result<Vec<ReportPosition>, Error> {
+    let setup = Fen::from_ascii(fen.as_bytes())?.into_setup();
+    let castling_mode = CastlingMode::detect(&setup);
+    let mut chess: Chess = setup.position(castling_mode)?;
+
+    let mut positions = vec![ReportPosition {
+        fen: Fen::from_position(chess.clone(), EnPassantMode::Legal),
+        moves: vec![],
+        is_sacrifice: false,
+        terminal: chess.is_game_over(),
+    }];
+    for (i, m) in moves.iter().enumerate() {
+        let m = UciMove::from_ascii(m.as_bytes())?.to_move(&chess)?;
+        let previous_pos = chess.clone();
+        chess.play_unchecked(&m);
+        let terminal = chess.is_game_over();
+        let is_sacrifice = !terminal && naive_eval(&previous_pos) > -naive_eval(&chess) + 100;
+        positions.push(ReportPosition {
+            fen: Fen::from_position(chess.clone(), EnPassantMode::Legal),
+            moves: moves[..=i].to_vec(),
+            is_sacrifice,
+            terminal,
+        });
+    }
+    Ok(positions)
+}
+
+/// Assembles complete MultiPV sets from a stream of `info` lines, keeping exact lines only.
+///
+/// A set is complete when lines `1..=real_multipv` arrive in order at the same depth. The result
+/// is the last complete set at a depth no lower than any earlier complete set, so a search that
+/// ends on a bound or a partial set still reports the last exact one.
+struct MultiPvCollector {
+    real_multipv: usize,
+    pending: Vec<BestMoves>,
+    last_depth: u32,
+    best: Vec<BestMoves>,
+}
+
+impl MultiPvCollector {
+    fn new(real_multipv: u16) -> Self {
+        Self {
+            real_multipv: real_multipv as usize,
+            pending: Vec::new(),
+            last_depth: 0,
+            best: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, parsed: ParsedLine) {
+        if parsed.bound != Bound::Exact {
+            return;
+        }
+        let line = parsed.line;
+        if line.multipv == 1 {
+            self.pending.clear();
+        }
+        if line.multipv as usize != self.pending.len() + 1 {
+            return;
+        }
+        let depth = line.depth;
+        self.pending.push(line);
+        if self.pending.len() == self.real_multipv {
+            if self.pending.iter().all(|x| x.depth == depth) && depth >= self.last_depth {
+                self.best = std::mem::take(&mut self.pending);
+                self.last_depth = depth;
+            } else {
+                self.pending.clear();
+            }
+        }
+    }
+
+    fn into_best(self) -> Vec<BestMoves> {
+        self.best
+    }
+}
+
+/// How long a stopped engine gets to print its final `bestmove` before the search is abandoned.
+const STOP_GRACE: Duration = Duration::from_secs(2);
+
+/// Runs one search on the position already set on `proc` and returns the last complete exact
+/// MultiPV set (empty if the engine never produced one).
+///
+/// Cancellation is observed inside the read loop: the engine is told to `stop`, its output is
+/// drained up to `bestmove`, and the search returns `Error::AnalysisCancelled`.
+async fn search_once(
+    proc: &mut EngineProcess,
+    reader: &mut EngineReader,
+    go_mode: &GoMode,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<Vec<BestMoves>, Error> {
+    if matches!(go_mode, GoMode::Infinite) {
+        return Err(Error::InvalidGoMode);
+    }
+    if is_cancelled(cancel) {
+        return Err(Error::AnalysisCancelled);
+    }
+
+    let fen: Fen = proc.options.fen.parse()?;
+    let moves = proc.options.moves.clone();
+    let mut collector = MultiPvCollector::new(proc.real_multipv);
+
+    proc.go(go_mode).await?;
+    loop {
+        tokio::select! {
+            line = reader.next_line() => {
+                let Some(line) = line? else {
+                    return Err(Error::EngineDisconnected);
+                };
+                match parse_one(&line) {
+                    UciMessage::Info(attrs) => {
+                        if let Ok(parsed) = parse_uci_attrs(attrs, &fen, &moves) {
+                            collector.push(parsed);
+                        }
+                    }
+                    UciMessage::BestMove { .. } => return Ok(collector.into_best()),
+                    _ => {}
+                }
+            }
+            _ = cancel.changed() => {
+                proc.stop().await?;
+                let drained = tokio::time::timeout(STOP_GRACE, async {
+                    while let Some(line) = reader.next_line().await? {
+                        if matches!(parse_one(&line), UciMessage::BestMove { .. }) {
+                            break;
+                        }
+                    }
+                    Ok::<(), Error>(())
+                })
+                .await;
+                if let Ok(Err(e)) = drained {
+                    warn!("Engine output failed while stopping a search: {:?}", e);
+                }
+                return Err(Error::AnalysisCancelled);
+            }
+        }
+    }
 }
 
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_analysis(id: String, state: tauri::State<'_, AppState>) -> Result<(), Error> {
-    if let Some(flag) = state.analysis_cancel_flags.get(&id) {
-        flag.store(true, Ordering::SeqCst);
-    }
+    state.jobs.cancel(&id);
     Ok(())
 }
 
@@ -482,136 +669,90 @@ pub async fn analyze_game(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<MoveAnalysis>, Error> {
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    state
-        .analysis_cancel_flags
-        .insert(id.clone(), cancel_flag.clone());
+    let guard = ProgressGuard::start(
+        AppProgress {
+            store: &state.progress_state,
+            app: &app,
+        },
+        &state.jobs,
+        id,
+        ProgressStage::Engine,
+    );
+    let mut cancel = guard.cancel_token();
+
+    let mut positions = report_positions(&options.fen, &options.moves)?;
+    if options.reversed {
+        positions.reverse();
+    }
 
     let path = PathBuf::from(&engine);
     let mut analysis: Vec<MoveAnalysis> = Vec::new();
 
     let (mut proc, mut reader) = EngineProcess::new(path).await?;
 
-    let fen = Fen::from_ascii(options.fen.as_bytes())?;
-    let setup = fen.as_setup().clone();
-    let castling_mode = CastlingMode::detect(&setup);
-
-    let mut chess: Chess = setup.position(castling_mode)?;
-    let mut fens: Vec<(Fen, Vec<String>, bool)> = vec![(fen, vec![], false)];
-
-    options
-        .moves
-        .iter()
-        .enumerate()
-        .try_for_each(|(i, m)| -> Result<(), Error> {
-            let uci = UciMove::from_ascii(m.as_bytes())?;
-            let m = uci.to_move(&chess)?;
-            let previous_pos = chess.clone();
-            chess.play_unchecked(&m);
-            let current_pos = chess.clone();
-            if !chess.is_game_over() {
-                let prev_eval = naive_eval(&previous_pos);
-                let cur_eval = -naive_eval(&current_pos);
-                fens.push((
-                    Fen::from_position(current_pos, EnPassantMode::Legal),
-                    options.moves.clone().into_iter().take(i + 1).collect(),
-                    prev_eval > cur_eval + 100,
-                ));
-            }
-            Ok(())
-        })?;
-
-    if options.reversed {
-        fens.reverse();
-    }
+    let mut extra_options: Vec<EngineOption> = uci_options
+        .into_iter()
+        .filter(|x| x.name != "MultiPV")
+        .collect();
+    extra_options.push(EngineOption {
+        name: "MultiPV".to_string(),
+        value: report_multipv(options.multipv).to_string(),
+    });
 
     let mut novelty_found = false;
 
-    for (i, (_, moves, _)) in fens.iter().enumerate() {
-        if cancel_flag.load(Ordering::SeqCst) {
-            proc.kill().await?;
-            state.analysis_cancel_flags.remove(&id);
-            return Err(Error::AnalysisCancelled);
-        }
+    for (i, position) in positions.iter().enumerate() {
+        guard.progress((i as f32 / positions.len() as f32) * 100.0)?;
 
-        update_progress(
-            &state.progress_state,
-            &app,
-            id.clone(),
-            (i as f32 / fens.len() as f32) * 100.0,
-            false,
-        )?;
-
-        let mut extra_options = uci_options.clone();
-        if !extra_options.iter().any(|x| x.name == "MultiPV") {
-            extra_options.push(EngineOption {
-                name: "MultiPV".to_string(),
-                value: "2".to_string(),
+        if position.terminal {
+            analysis.push(MoveAnalysis {
+                terminal: true,
+                ..Default::default()
             });
-        } else {
-            extra_options.iter_mut().for_each(|x| {
-                if x.name == "MultiPV" {
-                    x.value = "2".to_string();
-                }
-            });
+            continue;
         }
 
         proc.set_options(EngineOptions {
             fen: options.fen.clone(),
-            moves: moves.clone(),
-            extra_options,
+            moves: position.moves.clone(),
+            extra_options: extra_options.clone(),
         })
         .await?;
 
-        proc.go(&go_mode).await?;
-
-        let mut current_analysis = MoveAnalysis::default();
-        while let Ok(Some(line)) = reader.next_line().await {
-            match parse_one(&line) {
-                UciMessage::Info(attrs) => {
-                    if let Ok(best_moves) =
-                        parse_uci_attrs(attrs, &proc.options.fen.parse()?, moves)
-                    {
-                        let multipv = best_moves.multipv;
-                        let cur_depth = best_moves.depth;
-                        if multipv as usize == proc.best_moves.len() + 1 {
-                            proc.best_moves.push(best_moves);
-                            if multipv == proc.real_multipv {
-                                if proc.best_moves.iter().all(|x| x.depth == cur_depth)
-                                    && cur_depth >= proc.last_depth
-                                {
-                                    current_analysis.best = proc.best_moves.clone();
-                                    proc.last_depth = cur_depth;
-                                }
-                                assert_eq!(proc.best_moves.len(), proc.real_multipv as usize);
-                                proc.best_moves.clear();
-                            }
-                        }
-                    }
+        match search_once(&mut proc, &mut reader, &go_mode, &mut cancel).await {
+            Ok(best) => analysis.push(MoveAnalysis {
+                best,
+                ..Default::default()
+            }),
+            Err(Error::AnalysisCancelled) => {
+                if let Err(e) = proc.kill().await {
+                    warn!("Failed to stop the analysis engine: {:?}", e);
                 }
-                UciMessage::BestMove { .. } => {
-                    break;
-                }
-                _ => {}
+                guard.cancelled()?;
+                return Err(Error::AnalysisCancelled);
             }
+            Err(e) => return Err(e),
         }
-        analysis.push(current_analysis);
     }
 
     if options.reversed {
         analysis.reverse();
-        fens.reverse();
+        positions.reverse();
     }
 
-    for (i, analysis) in analysis.iter_mut().enumerate() {
-        let fen = &fens[i].0;
+    for (analysis, position) in analysis.iter_mut().zip(&positions) {
+        analysis.fen = position.fen.to_string();
+        analysis.is_sacrifice = position.is_sacrifice;
+        if position.terminal {
+            continue;
+        }
+
         // let query = PositionQuery::exact_from_fen(&fen.to_string())?;
         let query = PositionQueryJs {
-            fen: fen.to_string(),
+            fen: analysis.fen.clone(),
             type_: "exact".to_string(),
         };
 
-        analysis.is_sacrifice = fens[i].2;
         if options.annotate_novelties && !novelty_found {
             if let Some(reference) = options.reference_db.clone() {
                 analysis.novelty = !is_position_in_db(
@@ -628,8 +769,7 @@ pub async fn analyze_game(
             }
         }
     }
-    update_progress(&state.progress_state, &app, id.clone(), 100.0, true)?;
-    state.analysis_cancel_flags.remove(&id);
+    guard.finished()?;
     Ok(analysis)
 }
 
@@ -769,6 +909,224 @@ mod tests {
     fn eval_opera_game2() {
         let position = pos("4kb1r/p2rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR4 b k - 1 14");
         assert_eq!(naive_eval(&position), 0);
+    }
+
+    const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+    fn parse(line: &str) -> ParsedLine {
+        let UciMessage::Info(attrs) = parse_one(line) else {
+            panic!("not an info line: {line}");
+        };
+        parse_uci_attrs(attrs, &START.parse().unwrap(), &[]).unwrap()
+    }
+
+    fn collect(multipv: u16, lines: &[&str]) -> Vec<BestMoves> {
+        let mut collector = MultiPvCollector::new(multipv);
+        for line in lines {
+            collector.push(parse(line));
+        }
+        collector.into_best()
+    }
+
+    fn depths(best: &[BestMoves]) -> Vec<(u16, u32)> {
+        best.iter().map(|b| (b.multipv, b.depth)).collect()
+    }
+
+    #[test]
+    fn parse_reads_bound_flags() {
+        let line = "info depth 12 multipv 1 score cp 31 pv e2e4 e7e5";
+        assert_eq!(parse(line).bound, Bound::Exact);
+        let line = "info depth 12 multipv 1 score cp 31 lowerbound pv e2e4";
+        assert_eq!(parse(line).bound, Bound::Lower);
+        let line = "info depth 12 multipv 1 score cp 31 upperbound pv e2e4";
+        assert_eq!(parse(line).bound, Bound::Upper);
+    }
+
+    #[test]
+    fn collector_keeps_last_complete_set() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 10 multipv 2 score cp 25 pv d2d4 d7d5",
+                "info depth 11 multipv 1 score cp 28 pv e2e4 c7c5",
+                "info depth 11 multipv 2 score cp 20 pv g1f3 d7d5",
+            ],
+        );
+        assert_eq!(depths(&best), vec![(1, 11), (2, 11)]);
+        assert_eq!(best[0].san_moves, vec!["e4", "c5"]);
+    }
+
+    #[test]
+    fn collector_drops_bound_only_sets() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 lowerbound pv e2e4",
+                "info depth 10 multipv 2 score cp 25 upperbound pv d2d4",
+            ],
+        );
+        assert!(best.is_empty());
+    }
+
+    #[test]
+    fn collector_keeps_exact_set_when_search_stops_on_a_bound() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 10 multipv 2 score cp 25 pv d2d4 d7d5",
+                "info depth 11 multipv 1 score cp 90 lowerbound pv e2e4",
+                "info depth 11 multipv 2 score cp 20 pv g1f3 d7d5",
+            ],
+        );
+        assert_eq!(depths(&best), vec![(1, 10), (2, 10)]);
+    }
+
+    #[test]
+    fn collector_survives_irregular_multipv_sequence() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 10 multipv 2 score cp 25 pv d2d4 d7d5",
+                "info depth 11 multipv 2 score cp 20 pv g1f3 d7d5",
+                "info depth 11 multipv 1 score cp 28 pv e2e4 c7c5",
+                "info depth 12 multipv 1 score cp 27 pv e2e4 e7e5",
+            ],
+        );
+        assert_eq!(depths(&best), vec![(1, 10), (2, 10)]);
+    }
+
+    #[test]
+    fn collector_rejects_mixed_depth_sets() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 9 multipv 2 score cp 25 pv d2d4 d7d5",
+            ],
+        );
+        assert!(best.is_empty());
+    }
+
+    fn uci(moves: &str) -> Vec<String> {
+        moves.split_whitespace().map(String::from).collect()
+    }
+
+    #[test]
+    fn report_positions_cover_root_and_every_move() {
+        let positions = report_positions(START, &uci("e2e4 e7e5 g1f3")).unwrap();
+        let fens: Vec<String> = positions.iter().map(|p| p.fen.to_string()).collect();
+        assert_eq!(
+            fens,
+            [
+                START,
+                "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+                "rnbqkbnr/pppp1ppp/8/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+            ]
+        );
+        assert_eq!(positions[2].moves, uci("e2e4 e7e5"));
+        assert!(positions.iter().all(|p| !p.terminal));
+    }
+
+    #[test]
+    fn report_positions_normalize_the_root_fen() {
+        // No counters and an en passant square without a legal capture.
+        let root = "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3";
+        let positions = report_positions(root, &[]).unwrap();
+        assert_eq!(
+            positions[0].fen.to_string(),
+            "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1"
+        );
+    }
+
+    #[test]
+    fn report_positions_keep_the_final_game_over_position() {
+        let positions = report_positions(START, &uci("f2f3 e7e5 g2g4 d8h4")).unwrap();
+        assert_eq!(positions.len(), 5);
+        assert!(positions[4].terminal);
+        assert!(!positions[4].is_sacrifice);
+        assert!(positions[..4].iter().all(|p| !p.terminal));
+    }
+
+    #[test]
+    fn report_positions_reject_an_illegal_move() {
+        assert!(report_positions(START, &uci("e2e5")).is_err());
+    }
+
+    #[test]
+    fn report_multipv_defaults_to_two_and_is_clamped() {
+        assert_eq!(report_multipv(None), 2);
+        assert_eq!(report_multipv(Some(1)), 2);
+        assert_eq!(report_multipv(Some(3)), 3);
+        assert_eq!(report_multipv(Some(9)), 4);
+    }
+
+    /// A UCI engine for the tests below, from `EC_TEST_ENGINE`. Run them with
+    /// `EC_TEST_ENGINE=/path/to/stockfish cargo test -- --ignored`.
+    async fn test_engine(multipv: u16) -> (EngineProcess, EngineReader) {
+        let path = std::env::var("EC_TEST_ENGINE").expect("EC_TEST_ENGINE is not set");
+        let (mut proc, reader) = EngineProcess::new(PathBuf::from(path)).await.unwrap();
+        proc.set_options(EngineOptions {
+            fen: START.to_string(),
+            moves: vec!["e2e4".to_string()],
+            extra_options: vec![EngineOption {
+                name: "MultiPV".to_string(),
+                value: multipv.to_string(),
+            }],
+        })
+        .await
+        .unwrap();
+        (proc, reader)
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn search_once_returns_one_complete_exact_set() {
+        let (mut proc, mut reader) = test_engine(3).await;
+        let (_cancel, mut rx) = watch::channel(false);
+        let best = search_once(&mut proc, &mut reader, &GoMode::Depth(12), &mut rx)
+            .await
+            .unwrap();
+        assert_eq!(
+            best.iter().map(|b| b.multipv).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert!(best
+            .iter()
+            .all(|b| b.depth == best[0].depth && b.depth >= 1));
+        proc.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn search_once_stops_inside_a_long_search() {
+        let (mut proc, mut reader) = test_engine(2).await;
+        let (cancel, mut rx) = watch::channel(false);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            cancel.send_replace(true);
+            // Keep the sender alive until the search has observed the value.
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+        let started = Instant::now();
+        let result = search_once(&mut proc, &mut reader, &GoMode::Depth(99), &mut rx).await;
+        assert!(matches!(result, Err(Error::AnalysisCancelled)));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        proc.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn search_once_rejects_an_infinite_search() {
+        let (mut proc, mut reader) = test_engine(2).await;
+        let (_cancel, mut rx) = watch::channel(false);
+        let result = search_once(&mut proc, &mut reader, &GoMode::Infinite, &mut rx).await;
+        assert!(matches!(result, Err(Error::InvalidGoMode)));
+        assert!(!proc.running);
+        proc.kill().await.unwrap();
     }
 }
 
