@@ -99,6 +99,25 @@ walk follows the current mainline, the first mismatch ends it. `beginReport(snap
 first reader in slice 8. `ReportModal` takes the root and headers from the store at submit time
 instead of render-time props.
 
+### Slice 7a: the facts module is compiled but not yet called
+
+Slice 7a adds the extractors and their tests; slice 7b calls them from `analyze_game`. Until then
+`mod commentary` carries `#[allow(dead_code, unused_imports)]` with a comment saying so, because
+`clippy -D warnings` rejects unused functions. Slice 7b removes the attribute. The vocabulary types
+(`FactVocabulary`, `MoveRef`, `PieceRef`, `NumberRef`, `PositionRef`, `NumberUnit`) and `FactKind`,
+`CommentaryKind`, `Perspective` are defined in slice 8, where TypeScript first uses them; Rust does
+not construct them, so they are exported through the specta builder's type list there.
+
+### Slice 7a: `see` is defined by the plan's own fixtures
+
+The plan describes `see(board, square, side)` as "from the capturing side's POV" and also lists
+fixtures in which the owner of the piece is the point of view ("queen left en prise to a knight
+→ −9"). `geometry::see` satisfies all three fixtures with one rule: if `side` owns the piece, the
+opponent captures only when that pays (result ≤ 0); if the opponent owns it, `side` captures first
+and the result may be negative. `capture_see(before, mv)` gives `PlayedMoveFacts.see` (captured
+value plus `see` on the destination after the move), so a capture is judged with the piece that
+actually moved. A king never captures onto a defended square inside an exchange.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
