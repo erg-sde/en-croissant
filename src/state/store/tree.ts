@@ -10,8 +10,8 @@ import { createDebouncedSessionStorage } from "./debouncedStorage";
 import { ANNOTATION_INFO, type Annotation } from "@/utils/annotation";
 import { getPGN } from "@/utils/chess";
 import { parseSanOrUci, positionFromFen } from "@/utils/chessops";
+import { type MainlineSnapshot, samePosition } from "@/utils/commentary/snapshot";
 import { isPrefix } from "@/utils/misc";
-import { getAnnotation } from "@/utils/score";
 import { playSound } from "@/utils/sound";
 import {
     createNode,
@@ -72,15 +72,14 @@ export interface TreeStoreState extends TreeState {
     setFen: (fen: string) => void;
 
     addAnalysis: (
-        analysis: {
-            best: BestMoves[];
-            novelty: boolean;
-            is_sacrifice: boolean;
-        }[],
-        options?: { showVariations: boolean },
+        analysis: AnalysisEntry[],
+        glyphs: (Annotation | null)[],
+        options?: AddAnalysisOptions,
     ) => void;
 
     setReportInProgress: (value: boolean) => void;
+    beginReport: (snapshot: MainlineSnapshot) => void;
+    endReport: (runId: string) => void;
 
     practicePath: number[] | null;
     setPracticePath: (path: number[] | null) => void;
@@ -91,6 +90,20 @@ export interface TreeStoreState extends TreeState {
 }
 
 export type TreeStore = ReturnType<typeof createTreeStore>;
+
+/** One position of a report: the engine lines and the FEN they were searched on. */
+export interface AnalysisEntry {
+    best: BestMoves[];
+    novelty: boolean;
+    is_sacrifice: boolean;
+    fen: string;
+}
+
+export interface AddAnalysisOptions {
+    showVariations: boolean;
+    /** When set, nothing is written unless it matches `report.runId`. */
+    runId?: string;
+}
 
 export const createTreeStore = (id?: string, initialTree?: TreeState) => {
     const stateCreator: StateCreator<TreeStoreState> = (set, get) => ({
@@ -485,11 +498,14 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                     }
                 }),
             ),
-        addAnalysis: (analysis, options) =>
+        addAnalysis: (analysis, glyphs, options) =>
             set(
                 produce((state) => {
+                    if (options?.runId !== undefined && state.report.runId !== options.runId) {
+                        return;
+                    }
                     state.dirty = true;
-                    addAnalysis(state, analysis, options);
+                    addAnalysis(state, analysis, glyphs, options);
                 }),
             ),
 
@@ -497,6 +513,25 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
             set(
                 produce((state: Draft<TreeStoreState>) => {
                     state.report.inProgress = value;
+                }),
+            );
+        },
+
+        beginReport: (snapshot) => {
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    state.report.inProgress = true;
+                    state.report.runId = snapshot.runId;
+                }),
+            );
+        },
+
+        endReport: (runId) => {
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (state.report.runId === runId) {
+                        state.report.inProgress = false;
+                    }
                 }),
             );
         },
@@ -690,44 +725,30 @@ function setShapes(state: TreeState, shapes: DrawShape[]) {
     return state;
 }
 
+// Writes a report onto the mainline. Entry `i` is written to the i-th mainline node only while
+// that node and its parent are the positions the engine searched; the first mismatch (a promoted
+// variation, a deleted move, a different game) ends the walk.
 function addAnalysis(
     state: TreeState,
-    analysis: {
-        best: BestMoves[];
-        novelty: boolean;
-        is_sacrifice: boolean;
-    }[],
-    options?: { showVariations: boolean },
+    analysis: AnalysisEntry[],
+    glyphs: (Annotation | null)[],
+    options?: AddAnalysisOptions,
 ) {
     let cur = state.root;
     let i = 0;
     let parent: TreeNode | undefined;
 
     while (cur !== undefined && i < analysis.length) {
+        if (
+            !samePosition(cur.fen, analysis[i].fen) ||
+            (parent && !samePosition(parent.fen, analysis[i - 1].fen))
+        ) {
+            break;
+        }
         const [pos] = positionFromFen(cur.fen);
         if (pos && !pos.isEnd() && analysis[i].best.length > 0) {
             cur.score = analysis[i].best[0].score;
-            let prevScore = null;
-            let prevprevScore = null;
-            let prevMoves: BestMoves[] = [];
-            if (i > 0 && analysis[i - 1].best.length > 0) {
-                prevScore = analysis[i - 1].best[0].score;
-                prevMoves = analysis[i - 1].best;
-            }
-            if (i > 1 && analysis[i - 2].best.length > 0) {
-                prevprevScore = analysis[i - 2].best[0].score;
-            }
-            const curScore = analysis[i].best[0].score;
-            const color = cur.halfMoves % 2 === 1 ? "white" : "black";
-            const annotation = getAnnotation(
-                prevprevScore?.value || null,
-                prevScore?.value || null,
-                curScore.value,
-                color,
-                prevMoves,
-                analysis[i].is_sacrifice,
-                cur.san || "",
-            );
+            const annotation = glyphs[i];
             if (annotation) {
                 cur.annotations = [...cur.annotations, annotation];
 

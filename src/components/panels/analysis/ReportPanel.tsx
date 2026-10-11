@@ -12,7 +12,7 @@ import ProgressButton from "@/components/common/ProgressButton";
 import { TreeStateContext } from "@/components/common/TreeStateContext";
 import { activeTabAtom, currentReportModalOpenAtom } from "@/state/atoms";
 import { ANNOTATION_INFO, isBasicAnnotation } from "@/utils/annotation";
-import { getGameStats, getMainLine } from "@/utils/chess";
+import { getGameStats } from "@/utils/chess";
 import classes from "./AnalysisPanel.module.css";
 import ReportModal from "./ReportModal";
 
@@ -47,11 +47,8 @@ function ReportPanel() {
     <ScrollArea offsetScrollbars>
       <ReportModal
         tab={activeTab!}
-        initialFen={root.fen}
-        moves={getMainLine(root)}
         reportingMode={reportingMode}
         closeReportingMode={closeReportingMode}
-        setInProgress={setInProgress}
         onError={setReportError}
       />
       <Stack mb="lg" gap="0.4rem" mr="xs">

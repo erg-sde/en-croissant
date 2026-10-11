@@ -10,6 +10,7 @@ import { match } from "ts-pattern";
 import { commands } from "@/bindings";
 import { activeTabAtom, tabsAtom } from "@/state/atoms";
 import { keyMapAtom } from "@/state/keybinds";
+import { treeRegistry } from "@/state/store/treeRegistry";
 import { createTab, genID, isPersistentGameOrigin, type Tab } from "@/utils/tabs";
 import { unwrap } from "@/utils/unwrap";
 import BoardAnalysis from "../boards/BoardAnalysis";
@@ -68,6 +69,7 @@ export default function BoardsPage() {
         setTabs((prev) => prev.filter((tab) => tab.value !== value));
         unwrap(await commands.killEngines(value));
         await commands.cancelAnalysis(`report_${value}`);
+        treeRegistry.discard(value);
         await commands.abortGame(`${value}-game`);
       }
     },
