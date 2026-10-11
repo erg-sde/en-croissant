@@ -50,6 +50,21 @@ behaviours differ from the old inline loop, both in the direction of the plan's 
 `search_once` rejects `GoMode::Infinite` with the new `Error::InvalidGoMode`, which the plan
 introduces for `explain_position`; it is added in slice 1 because `search_once` is introduced here.
 
+### Slice 2: raw tab-state writes go through the guarded flush
+
+The plan asks for a try/catch on the four raw `sessionStorage.setItem` calls (tabs.ts:123,
+ImportModal.tsx:112/165/187). They call `writeSessionState` in `debouncedStorage.ts` instead, which
+queues the entry and flushes immediately through the same per-key try/catch as the debounced writes.
+A write that fails therefore stays in the pending map that `getItem` reads first, so the new tab still
+opens with its game instead of an empty board, and the write is retried on the next flush.
+
+### Slice 2: report errors are shown inline from component state
+
+The inline Alert's message lives in `ReportPanel` state, not in `ReportState`. The plan's persistent
+report failure field is `ReportState.failure: NarrationFailure` (slice 12), which describes provider
+failures; engine-pass errors are plain strings and have no typed field to live in yet. The toast is
+always shown; the Alert is shown while the panel is mounted.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
