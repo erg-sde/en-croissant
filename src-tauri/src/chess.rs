@@ -978,6 +978,71 @@ mod tests {
         );
         assert!(best.is_empty());
     }
+
+    /// A UCI engine for the tests below, from `EC_TEST_ENGINE`. Run them with
+    /// `EC_TEST_ENGINE=/path/to/stockfish cargo test -- --ignored`.
+    async fn test_engine(multipv: u16) -> (EngineProcess, EngineReader) {
+        let path = std::env::var("EC_TEST_ENGINE").expect("EC_TEST_ENGINE is not set");
+        let (mut proc, reader) = EngineProcess::new(PathBuf::from(path)).await.unwrap();
+        proc.set_options(EngineOptions {
+            fen: START.to_string(),
+            moves: vec!["e2e4".to_string()],
+            extra_options: vec![EngineOption {
+                name: "MultiPV".to_string(),
+                value: multipv.to_string(),
+            }],
+        })
+        .await
+        .unwrap();
+        (proc, reader)
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn search_once_returns_one_complete_exact_set() {
+        let (mut proc, mut reader) = test_engine(3).await;
+        let (_cancel, mut rx) = watch::channel(false);
+        let best = search_once(&mut proc, &mut reader, &GoMode::Depth(12), &mut rx)
+            .await
+            .unwrap();
+        assert_eq!(
+            best.iter().map(|b| b.multipv).collect::<Vec<_>>(),
+            [1, 2, 3]
+        );
+        assert!(best
+            .iter()
+            .all(|b| b.depth == best[0].depth && b.depth >= 1));
+        proc.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn search_once_stops_inside_a_long_search() {
+        let (mut proc, mut reader) = test_engine(2).await;
+        let (cancel, mut rx) = watch::channel(false);
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(300)).await;
+            cancel.send_replace(true);
+            // Keep the sender alive until the search has observed the value.
+            tokio::time::sleep(Duration::from_secs(5)).await;
+        });
+        let started = Instant::now();
+        let result = search_once(&mut proc, &mut reader, &GoMode::Depth(99), &mut rx).await;
+        assert!(matches!(result, Err(Error::AnalysisCancelled)));
+        assert!(started.elapsed() < Duration::from_secs(3));
+        proc.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn search_once_rejects_an_infinite_search() {
+        let (mut proc, mut reader) = test_engine(2).await;
+        let (_cancel, mut rx) = watch::channel(false);
+        let result = search_once(&mut proc, &mut reader, &GoMode::Infinite, &mut rx).await;
+        assert!(matches!(result, Err(Error::InvalidGoMode)));
+        assert!(!proc.running);
+        proc.kill().await.unwrap();
+    }
 }
 
 #[derive(Type, Default, Serialize, Debug)]
