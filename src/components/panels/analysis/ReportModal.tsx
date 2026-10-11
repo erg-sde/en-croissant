@@ -1,37 +1,35 @@
 import { Button, Checkbox, Group, Modal, NumberInput, Select, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
+import { notifications } from "@mantine/notifications";
+import { IconX } from "@tabler/icons-react";
+import { error as logError } from "@tauri-apps/plugin-log";
 import { useAtom, useAtomValue } from "jotai";
-import { atomWithStorage } from "jotai/utils";
 import { memo, useContext, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useStore } from "zustand";
-import { commands, type GoMode } from "@/bindings";
+import { commands } from "@/bindings";
 import { TreeStateContext } from "@/components/common/TreeStateContext";
-import { enginesAtom, referenceDbAtom } from "@/state/atoms";
+import { enginesAtom, referenceDbAtom, reportSettingsAtom } from "@/state/atoms";
+import type { TreeStoreState } from "@/state/store/tree";
+import { treeRegistry } from "@/state/store/treeRegistry";
+import { getMainLine } from "@/utils/chess";
+import { deriveGlyphs } from "@/utils/commentary/classify";
+import { takeMainlineSnapshot } from "@/utils/commentary/snapshot";
 import type { LocalEngine } from "@/utils/engines";
 
-const reportSettingsAtom = atomWithStorage("report-settings", {
-  novelty: true,
-  reversed: true,
-  variations: true,
-  goMode: { t: "Time", c: 500 } as Exclude<GoMode, { t: "Infinite" }>,
-  engine: "",
-});
+// Display string of `Error::AnalysisCancelled` (src-tauri/src/error.rs); command errors cross IPC as
+// their message. A cancelled report is not a failure and is never reported.
+const ANALYSIS_CANCELLED = "Analysis cancelled";
 
 function ReportModal({
   tab,
-  initialFen,
-  moves,
   reportingMode,
   closeReportingMode,
-  setInProgress,
+  onError,
 }: {
   tab: string;
-  initialFen: string;
-  moves: string[];
   reportingMode: boolean;
   closeReportingMode: () => void;
-  setInProgress: (value: boolean) => void;
+  onError: (error: string | null) => void;
 }) {
   const { t } = useTranslation();
 
@@ -42,7 +40,6 @@ function ReportModal({
     [engines],
   );
   const store = useContext(TreeStateContext)!;
-  const addAnalysis = useStore(store, (s) => s.addAnalysis);
 
   const [reportSettings, setReportSettings] = useAtom(reportSettingsAtom);
 
@@ -69,15 +66,38 @@ function ReportModal({
     form.setValues({ ...reportSettings, engine });
   }, [localEngines, reportSettings]);
 
+  function reportFailed(detail: string) {
+    notifications.show({
+      title: t("Board.Analysis.ReportFailed"),
+      message: detail,
+      color: "red",
+      icon: <IconX />,
+    });
+    onError(detail);
+  }
+
   function analyze() {
     setReportSettings(form.values);
-    setInProgress(true);
+    onError(null);
     closeReportingMode();
     const engine = localEngines.find((e) => e.id === form.values.engine);
     const engineSettings = (engine?.settings ?? []).map((s) => ({
       ...s,
       value: s.value?.toString() ?? "",
     }));
+    const showVariations = form.values.variations;
+
+    // The run is bound to the mainline as it is now. The results are written to the tab's live store
+    // when they arrive (it may have been recreated meanwhile), and only onto positions that still
+    // match what the engine searched.
+    const { root, headers, beginReport } = store.getState();
+    const snapshot = takeMainlineSnapshot(root, headers);
+    beginReport(snapshot);
+    const finish = (write?: (live: TreeStoreState) => void) =>
+      treeRegistry.withStore(tab, (live) => {
+        write?.(live.getState());
+        live.getState().endReport(snapshot.runId);
+      });
 
     commands
       .analyzeGame(
@@ -86,21 +106,31 @@ function ReportModal({
         form.values.goMode,
         {
           annotateNovelties: form.values.novelty,
-          fen: initialFen,
+          fen: snapshot.rootFen,
           referenceDb,
           reversed: form.values.reversed,
-          moves,
+          moves: getMainLine(root),
         },
         engineSettings,
       )
       .then((analysis) => {
         if (analysis.status === "ok") {
-          addAnalysis(analysis.data, {
-            showVariations: form.values.variations,
-          });
+          const glyphs = deriveGlyphs(analysis.data, snapshot);
+          finish((live) =>
+            live.addAnalysis(analysis.data, glyphs, { showVariations, runId: snapshot.runId }),
+          );
+          return;
+        }
+        finish();
+        if (analysis.error !== ANALYSIS_CANCELLED) {
+          reportFailed(analysis.error);
         }
       })
-      .finally(() => setInProgress(false));
+      .catch((e) => {
+        finish();
+        logError(`Report failed: ${e}`);
+        reportFailed(t("Errors.Unknown"));
+      });
   }
 
   return (

@@ -195,4 +195,6 @@ export function getTreeStructureHash(node: TreeNode): string {
 
 export interface ReportState {
     inProgress: boolean;
+    /** Identity of the report run whose results may be written; set by `beginReport`. */
+    runId?: string;
 }

@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "未分析",
     "Board.Analysis.RefDBRequired": "未選取參考資料庫。請先在資料庫頁面選取一個。",
     "Board.Analysis.Report": "報告",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "報告已生成",
     "Board.Analysis.Reversed": "反向分析",
     "Board.Analysis.Reversed.Desc": "從最後一個著手開始分析對局。",

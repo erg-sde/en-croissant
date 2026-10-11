@@ -22,6 +22,7 @@ import { useTranslation } from "react-i18next";
 import { match } from "ts-pattern";
 import { commands } from "@/bindings";
 import { addRecentFileAtom, currentTabAtom } from "@/state/atoms";
+import { writeSessionState } from "@/state/store/debouncedStorage";
 import { parsePGN } from "@/utils/chess";
 import { getChesscomGame } from "@/utils/chess.com/api";
 import { chessopsError } from "@/utils/chessops";
@@ -109,7 +110,7 @@ export default function ImportModal({
           const tree = await parsePGN(input);
           const originKind = (await isInTempDir(fileInfo.path)) ? "temp_file" : "file";
           setCurrentTab((prev) => {
-            sessionStorage.setItem(prev.value, JSON.stringify({ version: 0, state: tree }));
+            writeSessionState(prev.value, { version: 0, state: tree });
             return {
               ...prev,
               name: getGameName(tree.headers),
@@ -162,7 +163,7 @@ export default function ImportModal({
 
       const tree = await parsePGN(pgn);
       setCurrentTab((prev) => {
-        sessionStorage.setItem(prev.value, JSON.stringify({ version: 0, state: tree }));
+        writeSessionState(prev.value, { version: 0, state: tree });
         return {
           ...prev,
           name: getGameName(tree.headers),
@@ -184,7 +185,7 @@ export default function ImportModal({
       setCurrentTab((prev) => {
         const tree = defaultTree(parsedFen);
         tree.headers.fen = parsedFen;
-        sessionStorage.setItem(prev.value, JSON.stringify({ version: 0, state: tree }));
+        writeSessionState(prev.value, { version: 0, state: tree });
         return {
           ...prev,
           name: t("Home.Card.AnalysisBoard.Title"),
