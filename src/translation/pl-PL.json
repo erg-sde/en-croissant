@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Nie przeanalizowane",
     "Board.Analysis.RefDBRequired": "Nie wybrano bazy odniesienia. Wybierz ją najpierw na stronie bazy danych",
     "Board.Analysis.Report": "Raport",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Raport wygenerowany",
     "Board.Analysis.Reversed": "Odwrócona analiza",
     "Board.Analysis.Reversed.Desc": "Analizuj grę od ostatniego ruchu.",

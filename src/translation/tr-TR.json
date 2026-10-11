@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Analiz edilmedi",
     "Board.Analysis.RefDBRequired": "Referans veritabanı seçilmedi. Önce veritabanları sayfasından birini seçin",
     "Board.Analysis.Report": "Rapor",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Rapor oluşturuldu",
     "Board.Analysis.Reversed": "Tersten analiz",
     "Board.Analysis.Reversed.Desc": "Oyunu son hamleden ilk hamleye analiz eder.",
