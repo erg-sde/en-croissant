@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Не проанализировано",
     "Board.Analysis.RefDBRequired": "Не выбрана база данных. Сначала выберите базу данных на странице баз данных.",
     "Board.Analysis.Report": "Отчёт",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Отчёт создан",
     "Board.Analysis.Reversed": "Обратный анализ",
     "Board.Analysis.Reversed.Desc": "Анализировать игру с последней позиции.",

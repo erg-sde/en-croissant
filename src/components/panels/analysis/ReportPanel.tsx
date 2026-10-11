@@ -1,9 +1,9 @@
-import { Grid, Group, Paper, ScrollArea, Stack, Text } from "@mantine/core";
+import { Alert, Grid, Group, Paper, ScrollArea, Stack, Text } from "@mantine/core";
 import { IconZoomCheck } from "@tabler/icons-react";
 import cx from "clsx";
 import equal from "fast-deep-equal";
 import { useAtom, useAtomValue } from "jotai";
-import React, { memo, useCallback, useContext, useMemo } from "react";
+import React, { memo, useCallback, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import { commands } from "@/bindings";
@@ -27,6 +27,7 @@ function ReportPanel() {
 
   const inProgress = useStore(store, (s) => s.report.inProgress);
   const setInProgress = useStore(store, (s) => s.setReportInProgress);
+  const [reportError, setReportError] = useState<string | null>(null);
 
   const stats = useMemo(() => getGameStats(root), [root]);
 
@@ -51,6 +52,7 @@ function ReportPanel() {
         reportingMode={reportingMode}
         closeReportingMode={closeReportingMode}
         setInProgress={setInProgress}
+        onError={setReportError}
       />
       <Stack mb="lg" gap="0.4rem" mr="xs">
         <ProgressButton
@@ -69,6 +71,17 @@ function ReportPanel() {
           inProgress={inProgress}
           setInProgress={setInProgress}
         />
+
+        {reportError && (
+          <Alert
+            color="red"
+            title={t("Board.Analysis.ReportFailed")}
+            withCloseButton
+            onClose={() => setReportError(null)}
+          >
+            {t("Board.Analysis.ReportFailed.Desc", { error: reportError })}
+          </Alert>
+        )}
 
         {stats.whiteAccuracy > 0 && stats.blackAccuracy > 0 && (
           <Group grow>
