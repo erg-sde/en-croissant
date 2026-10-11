@@ -710,11 +710,11 @@ function addAnalysis(
             let prevScore = null;
             let prevprevScore = null;
             let prevMoves: BestMoves[] = [];
-            if (i > 0) {
+            if (i > 0 && analysis[i - 1].best.length > 0) {
                 prevScore = analysis[i - 1].best[0].score;
                 prevMoves = analysis[i - 1].best;
             }
-            if (i > 1) {
+            if (i > 1 && analysis[i - 2].best.length > 0) {
                 prevprevScore = analysis[i - 2].best[0].score;
             }
             const curScore = analysis[i].best[0].score;

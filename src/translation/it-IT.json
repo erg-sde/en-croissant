@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Non analizzata",
     "Board.Analysis.RefDBRequired": "Nessun database selezionato. Inizia selezionandone uno nella pagina del database",
     "Board.Analysis.Report": "Report",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Report generato",
     "Board.Analysis.Reversed": "Analisi inversa",
     "Board.Analysis.Reversed.Desc": "Analizza la partita dall'ultima posizione.",

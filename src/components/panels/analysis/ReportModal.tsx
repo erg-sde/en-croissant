@@ -1,5 +1,8 @@
 import { Button, Checkbox, Group, Modal, NumberInput, Select, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
+import { notifications } from "@mantine/notifications";
+import { IconX } from "@tabler/icons-react";
+import { error as logError } from "@tauri-apps/plugin-log";
 import { useAtom, useAtomValue } from "jotai";
 import { atomWithStorage } from "jotai/utils";
 import { memo, useContext, useEffect, useMemo } from "react";
@@ -18,6 +21,10 @@ const reportSettingsAtom = atomWithStorage("report-settings", {
   engine: "",
 });
 
+// Display string of `Error::AnalysisCancelled` (src-tauri/src/error.rs); command errors cross IPC as
+// their message. A cancelled report is not a failure and is never reported.
+const ANALYSIS_CANCELLED = "Analysis cancelled";
+
 function ReportModal({
   tab,
   initialFen,
@@ -25,6 +32,7 @@ function ReportModal({
   reportingMode,
   closeReportingMode,
   setInProgress,
+  onError,
 }: {
   tab: string;
   initialFen: string;
@@ -32,6 +40,7 @@ function ReportModal({
   reportingMode: boolean;
   closeReportingMode: () => void;
   setInProgress: (value: boolean) => void;
+  onError: (error: string | null) => void;
 }) {
   const { t } = useTranslation();
 
@@ -69,8 +78,19 @@ function ReportModal({
     form.setValues({ ...reportSettings, engine });
   }, [localEngines, reportSettings]);
 
+  function reportFailed(detail: string) {
+    notifications.show({
+      title: t("Board.Analysis.ReportFailed"),
+      message: detail,
+      color: "red",
+      icon: <IconX />,
+    });
+    onError(detail);
+  }
+
   function analyze() {
     setReportSettings(form.values);
+    onError(null);
     setInProgress(true);
     closeReportingMode();
     const engine = localEngines.find((e) => e.id === form.values.engine);
@@ -98,7 +118,13 @@ function ReportModal({
           addAnalysis(analysis.data, {
             showVariations: form.values.variations,
           });
+        } else if (analysis.error !== ANALYSIS_CANCELLED) {
+          reportFailed(analysis.error);
         }
+      })
+      .catch((e) => {
+        logError(`Report failed: ${e}`);
+        reportFailed(t("Errors.Unknown"));
       })
       .finally(() => setInProgress(false));
   }

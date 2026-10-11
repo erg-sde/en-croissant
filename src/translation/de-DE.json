@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Nicht analysiert",
     "Board.Analysis.RefDBRequired": "Keine Referenzdatenbank ausgewählt. Wähle zuerst eine auf der Datenbankseite aus.",
     "Board.Analysis.Report": "Bericht",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Bericht erstellt",
     "Board.Analysis.Reversed": "Umgekehrte Analyse",
     "Board.Analysis.Reversed.Desc": "Analysiere das Spiel ausgehend vom letzten Zug.",
