@@ -283,6 +283,208 @@ mod tests {
         assert!(facts.is_none());
     }
 
+    /// Facts for the frontend's commentary tests, from scripted (not engine) lines. Regenerate with
+    /// `cargo test write_frontend_fixtures -- --ignored` after a change to the fact types.
+    #[test]
+    #[ignore = "writes src/utils/tests/commentary/fixtures/moveFacts.json"]
+    fn write_frontend_fixtures() {
+        struct Case<'a> {
+            name: &'a str,
+            fen: &'a str,
+            played: &'a str,
+            parent: &'a [(&'a str, EvalValue)],
+            own: Option<(&'a str, EvalValue)>,
+            index: u32,
+            prev: Option<(EvalValue, EvalValue, Color)>,
+            novelty: bool,
+            time: Option<TimeFacts>,
+            opening: Option<(&'a str, &'a str)>,
+        }
+        let cases = [
+            Case {
+                name: "mateAllowed",
+                fen: BEFORE_NF6,
+                played: "g8f6",
+                parent: &[
+                    ("g7g6 h5f3 g8f6", EvalValue::Cp(-30)),
+                    ("d8e7 g1f3 g8f6", EvalValue::Cp(-10)),
+                ],
+                own: Some(("h5f7", EvalValue::Mate(1))),
+                index: 6,
+                prev: None,
+                novelty: false,
+                time: None,
+                opening: None,
+            },
+            Case {
+                name: "checkmate",
+                fen: "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+                played: "h5f7",
+                parent: &[
+                    ("h5f7", EvalValue::Mate(1)),
+                    ("d2d3 d7d5", EvalValue::Cp(-40)),
+                ],
+                own: None,
+                index: 7,
+                prev: None,
+                novelty: false,
+                time: None,
+                opening: None,
+            },
+            Case {
+                name: "queenLost",
+                fen: "r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R b KQkq - 1 2",
+                played: "d8g5",
+                parent: &[
+                    ("g8f6 b1c3 f8b4", EvalValue::Cp(-20)),
+                    ("d7d6 d2d4 c8g4", EvalValue::Cp(-35)),
+                ],
+                own: Some(("f3g5 g8f6 d2d3", EvalValue::Cp(900))),
+                index: 4,
+                prev: None,
+                novelty: false,
+                time: Some(TimeFacts {
+                    remaining_s: 12.0,
+                    spent_s: Some(3.0),
+                    under_pressure: true,
+                }),
+                opening: None,
+            },
+            Case {
+                name: "onlyMove",
+                fen: "4k3/8/8/3n4/8/8/8/R3K3 w - - 0 1",
+                played: "a1a5",
+                parent: &[
+                    ("a1a5 e8e7 a5d5", EvalValue::Cp(900)),
+                    ("a1a7 d5c3 e1d2", EvalValue::Cp(-250)),
+                ],
+                own: Some(("e8e7 a5d5 e7e6", EvalValue::Cp(900))),
+                index: 1,
+                prev: None,
+                novelty: false,
+                time: None,
+                opening: None,
+            },
+            Case {
+                name: "clearlyBest",
+                fen: "4k3/8/8/3n4/8/8/8/R3K3 w - - 0 1",
+                played: "a1a5",
+                parent: &[
+                    ("a1a5 e8e7 a5d5", EvalValue::Cp(900)),
+                    ("a1a7 d5c3 e1d2", EvalValue::Cp(250)),
+                ],
+                own: Some(("e8e7 a5d5 e7e6", EvalValue::Cp(900))),
+                index: 1,
+                prev: None,
+                novelty: false,
+                time: None,
+                opening: None,
+            },
+            Case {
+                name: "sacrifice",
+                fen: "r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4",
+                played: "c4f7",
+                parent: &[
+                    ("c4f7 e8f7 f3g5 f7e8", EvalValue::Cp(60)),
+                    ("e1g1 g8f6 d2d3", EvalValue::Cp(20)),
+                ],
+                own: Some(("e8f7 f3g5 f7e8 d1f3", EvalValue::Cp(60))),
+                index: 7,
+                prev: None,
+                novelty: false,
+                time: None,
+                opening: None,
+            },
+            Case {
+                name: "missedPunishment",
+                fen: "4k3/8/8/3n4/8/8/8/R3K3 w - - 0 1",
+                played: "e1d2",
+                parent: &[
+                    ("a1a5 e8e7 a5d5", EvalValue::Cp(900)),
+                    ("a1a7 d5c3 e1d2", EvalValue::Cp(250)),
+                ],
+                own: Some(("e8e7 a1a7 e7e6", EvalValue::Cp(50))),
+                index: 3,
+                prev: Some((EvalValue::Cp(0), EvalValue::Cp(900), Color::Black)),
+                novelty: false,
+                time: None,
+                opening: None,
+            },
+            Case {
+                name: "openingNovelty",
+                fen: "rnbqkb1r/pppp1ppp/4pn2/8/2PP4/8/PP2PPPP/RNBQKBNR w KQkq - 0 3",
+                played: "b1c3",
+                parent: &[
+                    ("b1c3 f8b4 e2e3", EvalValue::Cp(30)),
+                    ("g1f3 d7d5 b1c3", EvalValue::Cp(25)),
+                ],
+                own: Some(("f8b4 e2e3 e8g8", EvalValue::Cp(30))),
+                index: 5,
+                prev: None,
+                novelty: true,
+                time: None,
+                opening: Some(("E20", "Nimzo-Indian Defense")),
+            },
+        ];
+
+        let mut out = serde_json::Map::new();
+        for case in cases {
+            let before = pos(case.fen);
+            let mv = uci(&before, case.played);
+            let mut after = before.clone();
+            after.play_unchecked(&mv);
+            let parent: Vec<BestMoves> = case
+                .parent
+                .iter()
+                .enumerate()
+                .map(|(k, (u, v))| {
+                    let mut l = line(&before, u, *v);
+                    l.multipv = k as u16 + 1;
+                    l
+                })
+                .collect();
+            let own: Vec<BestMoves> = case.own.iter().map(|(u, v)| line(&after, u, *v)).collect();
+            let prev = case.prev.map(|(b, a, mover)| {
+                let ev = |v: EvalValue| {
+                    ExactEval::from_line(
+                        &line(&pos("4k3/8/8/8/8/8/8/4K3 w - - 0 1"), "e1e2", v),
+                        mover,
+                    )
+                };
+                let (before, after) = (ev(b), ev(a));
+                EvalFacts {
+                    win_delta: Some(before.win - after.win),
+                    before: Some(before),
+                    after,
+                }
+            });
+            let opening = case.opening.map(|(eco, name)| OpeningMatch {
+                eco: eco.into(),
+                name: name.into(),
+                pgn: None,
+                index: case.index,
+            });
+            let facts = extract_move_facts(&FactsContext {
+                index: case.index,
+                before: &before,
+                mv: &mv,
+                parent_lines: &parent,
+                own_lines: &own,
+                opening: opening.as_ref(),
+                prev: prev.as_ref(),
+                time: case.time,
+                terminal: after.is_game_over(),
+                novelty: case.novelty,
+            })
+            .unwrap();
+            out.insert(case.name.into(), serde_json::to_value(facts).unwrap());
+        }
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/utils/tests/commentary/fixtures/moveFacts.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap() + "\n").unwrap();
+    }
+
     #[test]
     fn castling_destination_is_the_king_square() {
         let before = pos("r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1");
