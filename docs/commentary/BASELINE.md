@@ -26,4 +26,16 @@ Run on the baseline commit before any change:
 | `pnpm i --frozen-lockfile` (pnpm 10, as in `.github/workflows/test.yml`) | ok |
 | `pnpm lint` | 0 errors, 56 warnings (pre-existing) |
 | `pnpm test` | 5 files, 40 tests passed |
-| `cargo test`, `cargo clippy -- -D warnings` | see `STATUS.md` |
+| `cargo test` (Rust 1.99.0) | 44 passed, 8 failed (pre-existing, see below) |
+| `cargo fmt --check` | 2 files would be reformatted (`db/search_index.rs`, `sound.rs`) |
+| `cargo clippy -- -D warnings` | 4 errors in upstream code (`db/mod.rs:631`, `db/mod.rs:714`, `db/search_index.rs:182`, `fs.rs:23`) |
+
+Upstream CI (`.github/workflows/test.yml`) runs no cargo step, so these were not visible upstream.
+The commentary slices leave them alone: each slice must add no new test failure, no new clippy
+lint and no unformatted file, and only files a slice touches are formatted. The failing tests are
+`chess::tests::eval_*` (7 tests asserting `naive_eval` values) and
+`db::search::tests::get_move_after_exact_match_test`; fixing them belongs in a separate PR.
+
+Environment notes for this Windows checkout: `core.autocrlf=false` and `core.eol=lf` are set in the
+repository config because `.editorconfig` and oxfmt require LF; `dist/` must exist (it can be empty)
+for `cargo test` because `tauri::generate_context!` checks `frontendDist`.
