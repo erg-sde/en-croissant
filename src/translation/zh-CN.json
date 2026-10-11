@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "未分析",
     "Board.Analysis.RefDBRequired": "未选择参考数据库，请先在数据库页面中选择一个",
     "Board.Analysis.Report": "报告",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "报告已生成",
     "Board.Analysis.Reversed": "反向分析",
     "Board.Analysis.Reversed.Desc": "从最后一步开始分析对局",

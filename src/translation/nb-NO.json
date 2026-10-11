@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Ikke analysert",
     "Board.Analysis.RefDBRequired": "Ingen referansedatabase funnet. Velg en database i databasesiden.",
     "Board.Analysis.Report": "Rapport",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Rapport lagd",
     "Board.Analysis.Reversed": "Baklengs analyse",
     "Board.Analysis.Reversed.Desc": "Analyser partiet fra siste til første trekk.",

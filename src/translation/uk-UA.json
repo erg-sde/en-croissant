@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Не проаналізовано",
     "Board.Analysis.RefDBRequired": "Не вибрано базу даних. Спочатку виберіть базу даних на сторінці баз даних.",
     "Board.Analysis.Report": "Звіт",
+    "Board.Analysis.ReportFailed": "",
+    "Board.Analysis.ReportFailed.Desc": "",
     "Board.Analysis.ReportGenerated": "Звіт створено",
     "Board.Analysis.Reversed": "Зворотний аналіз",
     "Board.Analysis.Reversed.Desc": "Аналізувати гру з останньої позиції.",
