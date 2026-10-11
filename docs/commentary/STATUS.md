@@ -34,7 +34,7 @@ consent review.
 
 | Suite | Baseline | Now | Added |
 |---|---|---|---|
-| `pnpm test` (vitest) | 40 | 105 | 65 |
+| `pnpm test` (vitest) | 40 | 106 | 66 |
 | `cargo test` | 52 (44 pass, 8 fail) | 115 (107 pass with the ignored tests, 8 fail) | 63 |
 
 The 8 failing Rust tests fail on the untouched baseline (`chess::tests::eval_*`,
