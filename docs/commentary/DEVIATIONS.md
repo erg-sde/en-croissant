@@ -65,6 +65,40 @@ report failure field is `ReportState.failure: NarrationFailure` (slice 12), whic
 failures; engine-pass errors are plain strings and have no typed field to live in yet. The toast is
 always shown; the Alert is shown while the panel is mounted.
 
+### Slice 6: clock fields of `AnalysisOptions` land with their reader
+
+The plan adds `AnalysisOptions.clocks`, `increment_s` and `initial_s` in slice 6. Nothing in Rust
+reads them before `facts/time.rs` (slice 7b), and an unread field fails `clippy -D warnings`, so they
+are added there. The TypeScript snapshot already captures what they will carry: each ply's `clock`
+and the time control's `incrementS`/`initialS` (camelCase, the form they take across IPC).
+
+### Slice 6: report positions are a named struct built by a pure function
+
+`analyze_game`'s `fens: Vec<(Fen, Vec<String>, bool, bool)>` is a private `ReportPosition { fen,
+moves, is_sacrifice, terminal }` built by `report_positions(fen, moves)`, so FEN alignment
+(index 0 normalized, the game-over entry kept) is unit-tested without an engine. Positions are
+computed before the engine is spawned, so a bad FEN or illegal move fails without starting one.
+
+### Slice 6: `treeRegistry` parks writes, not narration chunks
+
+The plan's `treeRegistry.parked` is a `Map<tabId, NarrationChunk[]>` drained by
+`CommentaryListener`. Slice 6 already needs parking for the engine result itself (a report that
+finishes while its board tab is unmounted), so `parked` holds `ParkedWrite = (store) => void`
+closures applied in order on the next registration; slice 12 parks chunk applications through the
+same queue. `activeRuns` arrives with the progress reconciliation in slice 8. `discard(tab)` is
+added so a closed tab's parked writes are dropped.
+
+### Slice 6: `addAnalysis` checks positions, not SAN, and stops at the first mismatch
+
+`addAnalysis(analysis, glyphs, { showVariations, runId })` writes entry `i` only while the node and
+its parent are the positions in `analysis[i].fen` and `analysis[i - 1].fen` (`samePosition`). The
+plan also compares `node.san` with the snapshot's SAN; that is implied (two different moves from the
+same parent cannot reach the same position), so the store does not need the snapshot. Because the
+walk follows the current mainline, the first mismatch ends it. `beginReport(snapshot)` and
+`endReport(runId)` (glossary names) set and clear the run; `ReportState.stage` arrives with its
+first reader in slice 8. `ReportModal` takes the root and headers from the store at submit time
+instead of render-time props.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
