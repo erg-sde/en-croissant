@@ -277,3 +277,47 @@ pub async fn write_game(
 
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn games(name: &str, pgn: &str) -> Vec<String> {
+        let path = std::env::temp_dir().join(format!("ec-pgn-{}-{name}.pgn", std::process::id()));
+        std::fs::write(&path, pgn).unwrap();
+        let mut parser = PgnParser::new(File::open(&path).unwrap());
+        let mut games = Vec::new();
+        loop {
+            let game = parser.read_game().unwrap();
+            if game.is_empty() {
+                break;
+            }
+            games.push(game);
+        }
+        std::fs::remove_file(&path).unwrap();
+        games
+    }
+
+    // A comment as the frontend's toPgnSafe writes it: braces replaced by parentheses, `[%`
+    // broken up. It spans a line that starts with `[`, which is only safe while the scanner
+    // knows it is inside a comment.
+    const SANITIZED: &str = "[Event \"A\"]\n\n1. e4 {threat (Qh5) and\n[ %eval 9] next} e5 *\n\n[Event \"B\"]\n\n1. d4 *\n";
+
+    #[test]
+    fn sanitized_comments_keep_games_apart() {
+        let games = games("sanitized", SANITIZED);
+        assert_eq!(games.len(), 2);
+        assert!(games[0].contains("[ %eval 9] next} e5 *"));
+        assert!(games[1].starts_with("[Event \"B\"]"));
+    }
+
+    #[test]
+    fn an_unsanitized_brace_cuts_a_game_short() {
+        let raw = SANITIZED.replace("(Qh5)", "}Qh5{ }");
+        let games = games("raw", &raw);
+        // The scanner leaves the comment at the first `}`, takes the next line for a header and
+        // ends game A there; the rest of A is read as the start of game B.
+        assert!(!games[0].contains("e5 *"));
+        assert!(games[1].starts_with("[ %eval 9] next} e5 *"));
+    }
+}
