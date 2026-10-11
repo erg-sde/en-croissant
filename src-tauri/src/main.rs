@@ -181,7 +181,16 @@ fn main() {
             GameMoveEvent,
             ClockUpdateEvent,
             GameOverEvent
-        ));
+        ))
+        // Commentary types the frontend builds and validates against; no command returns them.
+        .typ::<commentary::facts::FactVocabulary>()
+        .typ::<commentary::facts::FactKind>()
+        .typ::<commentary::facts::CommentaryKind>()
+        .typ::<commentary::facts::Perspective>()
+        .constant(
+            "FACTS_SCHEMA_VERSION",
+            commentary::facts::FACTS_SCHEMA_VERSION,
+        );
 
     #[cfg(debug_assertions)]
     specta_builder

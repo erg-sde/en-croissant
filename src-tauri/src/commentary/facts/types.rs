@@ -372,6 +372,104 @@ pub struct MoveFacts {
     pub time: Option<TimeFacts>,
 }
 
+/// The position a board reference is evaluated in: before the move, after it, or after `ply`
+/// plies of line `id`.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(tag = "t", rename_all = "camelCase")]
+pub enum PositionRef {
+    Before,
+    After,
+    Line { id: u8, ply: u8 },
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum NumberUnit {
+    Pawns,
+    MateIn,
+    WinPercent,
+    Move,
+    /// Rendered through the frontend's `formatScore`.
+    Eval,
+    Seconds,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct MoveRef {
+    pub san: String,
+    pub side: Side,
+    pub at: PositionRef,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, Type)]
+pub struct PieceRef {
+    pub piece: PieceKind,
+    pub square: String,
+    pub at: PositionRef,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Type)]
+pub struct NumberRef {
+    pub value: f32,
+    pub unit: NumberUnit,
+}
+
+/// The board references a fact permits. A sentence citing the fact may name only these; the
+/// frontend computes it from the fact and the validator checks sentences against it.
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Default, Type)]
+pub struct FactVocabulary {
+    pub moves: Vec<MoveRef>,
+    pub pieces: Vec<PieceRef>,
+    pub squares: Vec<String>,
+    pub numbers: Vec<NumberRef>,
+    pub sides: Vec<Side>,
+}
+
+/// The families of facts a sentence can cite.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum FactKind {
+    Line,
+    Hanging,
+    Attack,
+    Motif,
+    Criticality,
+    EvalDelta,
+    Opening,
+    Novelty,
+    Time,
+    Game,
+}
+
+/// Why a move's commentary exists.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum CommentaryKind {
+    Mistake,
+    EvalDrift,
+    Miss,
+    BetterMove,
+    OnlyMove,
+    ClearlyBest,
+    Sacrifice,
+    MateFound,
+    Threat,
+    Opening,
+    Novelty,
+    Phase,
+    Mate,
+    Positional,
+}
+
+/// Whose side "you" is in commentary; `Both` is third person.
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum Perspective {
+    White,
+    Black,
+    Both,
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;

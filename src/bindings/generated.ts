@@ -495,7 +495,7 @@ progressEvent: "progress-event"
 
 /** user-defined constants **/
 
-
+export const FACTS_SCHEMA_VERSION = 1 as const;
 
 /** user-defined types **/
 
@@ -562,6 +562,10 @@ kingZoneAttackers: ByColor<number>; pawns: ByColor<PawnFacts>;
 openFiles: string[] }
 export type ByColor<T> = { white: T; black: T }
 export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; blackTime: bigint | null }
+/**
+ * Why a move's commentary exists.
+ */
+export type CommentaryKind = "mistake" | "evalDrift" | "miss" | "betterMove" | "onlyMove" | "clearlyBest" | "sacrifice" | "mateFound" | "threat" | "opening" | "novelty" | "phase" | "mate" | "positional"
 /**
  * What makes the move played stand out among the alternatives. Zero or more per move, in a fixed
  * extractor order.
@@ -631,6 +635,15 @@ export type Event = { id: number; name: string | null }
  * An exact evaluation (never a search bound) with the mover's win chance, 0 to 100.
  */
 export type ExactEval = { value: EvalValue; depth: number; win: number }
+/**
+ * The families of facts a sentence can cite.
+ */
+export type FactKind = "line" | "hanging" | "attack" | "motif" | "criticality" | "evalDelta" | "opening" | "novelty" | "time" | "game"
+/**
+ * The board references a fact permits. A sentence citing the fact may name only these; the
+ * frontend computes it from the fact and the validator checks sentences against it.
+ */
+export type FactVocabulary = { moves: MoveRef[]; pieces: PieceRef[]; squares: string[]; numbers: NumberRef[]; sides: Side[] }
 export type FileMetadata = { last_modified: number }
 export type GameConfig = { white: PlayerConfig; black: PlayerConfig; whiteTimeControl: TimeControl | null; blackTimeControl: TimeControl | null; initialFen: string | null; initialMoves?: string[]; openingBook: OpeningBookConfig | null }
 export type GameEndReason = "checkmate" | "timeout" | "resignation" | "abandonment"
@@ -772,7 +785,14 @@ refutation: number | null;
  * Index in `lines` of the threat line.
  */
 threat: number | null; criticality: Criticality[]; before: BoardFacts; after: BoardFacts; delta: BoardDelta; opening: OpeningFacts | null; novelty: boolean; time: TimeFacts | null }
+export type MoveRef = { san: string; side: Side; at: PositionRef }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
+export type NumberRef = { value: number; unit: NumberUnit }
+export type NumberUnit = "pawns" | "mateIn" | "winPercent" | "move" | 
+/**
+ * Rendered through the frontend's `formatScore`.
+ */
+"eval" | "seconds"
 export type OpeningBookConfig = { path: string; maxPly?: bigint }
 /**
  * The last position of the game found in the opening table.
@@ -790,9 +810,14 @@ export type OutOpening = { name: string; fen: string }
 export type Outcome = "1-0" | "0-1" | "1/2-1/2" | "*"
 export type PawnFacts = { isolated: string[]; doubled: string[]; passed: string[] }
 /**
+ * Whose side "you" is in commentary; `Both` is third person.
+ */
+export type Perspective = "white" | "black" | "both"
+/**
  * Matches chessops' `Role` strings.
  */
 export type PieceKind = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king"
+export type PieceRef = { piece: PieceKind; square: string; at: PositionRef }
 export type PlayedMoveFacts = { san: string; uci: string; piece: PieceKind; from: string; to: string; 
 /**
  * 1 is the engine's first choice; `None` if the move is not among the parent's lines.
@@ -810,6 +835,11 @@ export type PlayerQuery = { options: QueryOptions<PlayerSort>; name?: string | n
 export type PlayerSort = "id" | "name" | "elo"
 export type PlayersTime = { white: number; black: number; winc: number; binc: number }
 export type PositionQueryJs = { fen: string; type_: string }
+/**
+ * The position a board reference is evaluated in: before the move, after it, or after `ply`
+ * plies of line `id`.
+ */
+export type PositionRef = { t: "before" } | { t: "after" } | { t: "line"; id: number; ply: number }
 export type PositionStats = { move: string; white: number; draw: number; black: number }
 export type ProgressEvent = { id: string; progress: number; finished: boolean; stage?: ProgressStage | null; status?: ProgressStatus | null }
 export type ProgressItem = { id: string; progress: number; finished: boolean; stage?: ProgressStage | null; status?: ProgressStatus | null }
