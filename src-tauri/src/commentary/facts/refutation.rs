@@ -180,9 +180,14 @@ fn line_motifs(moves: &[Move], positions: &[Chess], shown: usize, mates: bool) -
         promotion(mv).into_iter().for_each(&mut add);
         mate_threats(current).into_iter().for_each(&mut add);
     }
-    if mates {
+    // A back-rank weakness explains a mate only when the mating move lands on that rank.
+    if mates && shown > 0 {
         let last = &positions[shown];
-        back_rank(last, last.turn()).into_iter().for_each(&mut add);
+        let mated = last.turn();
+        let mating_move = &moves[shown - 1];
+        if destination(mating_move, !mated).rank() == mated.relative_rank(shakmaty::Rank::First) {
+            back_rank(last, mated).into_iter().for_each(&mut add);
+        }
     }
     found
 }
@@ -313,6 +318,18 @@ mod tests {
         assert!(facts
             .motifs
             .contains(&Motif::BackRank { king: "g8".into() }));
+    }
+
+    #[test]
+    fn a_mate_off_the_back_rank_is_not_a_back_rank_motif() {
+        let start = pos("r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4");
+        let l = line(&start, "h5f7", EvalValue::Mate(1));
+        let facts = line_facts(0, LineOrigin::Before, &l, &start, Color::White);
+        assert_eq!(facts.cut_reason, LineCut::Mate);
+        assert!(!facts
+            .motifs
+            .iter()
+            .any(|m| matches!(m, Motif::BackRank { .. })));
     }
 
     #[test]
