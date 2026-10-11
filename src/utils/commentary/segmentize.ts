@@ -162,3 +162,10 @@ export function segmentize(
     });
     return { template, text: capitalize(text, lang), refs };
 }
+
+const PIECES: PieceKind[] = ["pawn", "knight", "bishop", "rook", "queen", "king"];
+
+/** The piece names of the current language, which templates may not contain as literal text. */
+export function pieceWords(t: Translate): string[] {
+    return PIECES.map((piece) => t(`Commentary.Piece.${piece}`));
+}

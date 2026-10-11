@@ -2,17 +2,30 @@ import { Button, Checkbox, Group, Modal, NumberInput, Select, Stack } from "@man
 import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
 import { IconX } from "@tabler/icons-react";
+import { getVersion } from "@tauri-apps/api/app";
 import { error as logError } from "@tauri-apps/plugin-log";
-import { useAtom, useAtomValue } from "jotai";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { memo, useContext, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { commands } from "@/bindings";
+import { commands, type MoveAnalysis } from "@/bindings";
 import { TreeStateContext } from "@/components/common/TreeStateContext";
-import { enginesAtom, referenceDbAtom, reportSettingsAtom } from "@/state/atoms";
+import {
+  commentaryFactsFamily,
+  commentaryFactsKey,
+  commentarySettingsAtom,
+  enginesAtom,
+  referenceDbAtom,
+  reportSettingsAtom,
+  sessionsAtom,
+} from "@/state/atoms";
 import type { TreeStoreState } from "@/state/store/tree";
 import { treeRegistry } from "@/state/store/treeRegistry";
 import { getMainLine } from "@/utils/chess";
+import type { Annotation } from "@/utils/annotation";
 import { deriveGlyphs } from "@/utils/commentary/classify";
+import { buildMoveCommentary, type MoveCommentaryResult } from "@/utils/commentary/report";
+import { pieceWords, type Translate } from "@/utils/commentary/segmentize";
+import { resolvePerspective } from "@/utils/commentary/settings";
 import { takeMainlineSnapshot } from "@/utils/commentary/snapshot";
 import type { LocalEngine } from "@/utils/engines";
 
@@ -31,9 +44,12 @@ function ReportModal({
   closeReportingMode: () => void;
   onError: (error: string | null) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const referenceDb = useAtomValue(referenceDbAtom);
+  const sessions = useAtomValue(sessionsAtom);
+  const [commentarySettings, setCommentarySettings] = useAtom(commentarySettingsAtom);
+  const setCommentaryFacts = useSetAtom(commentaryFactsFamily(tab));
   const engines = useAtomValue(enginesAtom);
   const localEngines = useMemo(
     () => (engines ?? []).filter((e): e is LocalEngine => e.type === "local"),
@@ -92,7 +108,30 @@ function ReportModal({
     // match what the engine searched.
     const { root, headers, beginReport } = store.getState();
     const snapshot = takeMainlineSnapshot(root, headers);
+    const moves = getMainLine(root);
+    const explain = commentarySettings.explain;
     beginReport(snapshot);
+
+    // Deterministic commentary for every analysed move, from the facts the engine pass returned.
+    const commentaryFor = async (
+      analysis: MoveAnalysis[],
+      glyphs: (Annotation | null)[],
+    ): Promise<(MoveCommentaryResult | null)[]> => {
+      const translate: Translate = (key, options) => String(i18n.t(key, options));
+      const run = {
+        t: translate,
+        lang: i18n.language,
+        rootHalfMoves: root.halfMoves,
+        settings: commentarySettings,
+        perspective: resolvePerspective(headers, sessions, commentarySettings.perspective),
+        appVersion: await getVersion(),
+        pieceWords: pieceWords(translate),
+        now: Date.now(),
+      };
+      return analysis.map((entry, i) =>
+        entry.facts ? buildMoveCommentary(entry.facts, glyphs[i], run) : null,
+      );
+    };
     const finish = (write?: (live: TreeStoreState) => void) =>
       treeRegistry.withStore(tab, (live) => {
         write?.(live.getState());
@@ -109,16 +148,33 @@ function ReportModal({
           fen: snapshot.rootFen,
           referenceDb,
           reversed: form.values.reversed,
-          moves: getMainLine(root),
+          moves,
+          withFacts: explain,
+          clocks: snapshot.plies.slice(1).map((ply) => ply.clock ?? null),
+          incrementS: snapshot.incrementS,
+          initialS: snapshot.initialS,
         },
         engineSettings,
       )
-      .then((analysis) => {
+      .then(async (analysis) => {
         if (analysis.status === "ok") {
           const glyphs = deriveGlyphs(analysis.data, snapshot);
-          finish((live) =>
-            live.addAnalysis(analysis.data, glyphs, { showVariations, runId: snapshot.runId }),
+          const options = { showVariations, runId: snapshot.runId };
+          if (!explain) {
+            finish((live) => live.addAnalysis(analysis.data, glyphs, options));
+            return;
+          }
+          const commentary = await commentaryFor(analysis.data, glyphs);
+          setCommentaryFacts(
+            new Map(
+              analysis.data.flatMap((entry, i) =>
+                entry.facts
+                  ? [[commentaryFactsKey(snapshot.rootFen, moves.slice(0, i)), entry.facts]]
+                  : [],
+              ),
+            ),
           );
+          finish((live) => live.applyReport(analysis.data, glyphs, options, commentary));
           return;
         }
         finish();
@@ -204,6 +260,36 @@ function ReportModal({
             description={t("Board.Analysis.ShowVariations.Desc")}
             {...form.getInputProps("variations", { type: "checkbox" })}
           />
+
+          <Checkbox
+            label={t("Settings.Commentary.Explain")}
+            description={t("Settings.Commentary.Explain.Desc")}
+            checked={commentarySettings.explain}
+            onChange={(event) =>
+              setCommentarySettings({ ...commentarySettings, explain: event.currentTarget.checked })
+            }
+          />
+
+          {commentarySettings.explain && (
+            <Select
+              label={t("Settings.Commentary.Detail")}
+              allowDeselect={false}
+              data={[
+                { label: t("Settings.Commentary.Detail.KeyMoments"), value: "keyMoments" },
+                { label: t("Settings.Commentary.Detail.Mistakes"), value: "mistakes" },
+                { label: t("Settings.Commentary.Detail.AllMoves"), value: "allMoves" },
+              ]}
+              value={commentarySettings.detail}
+              onChange={(value) => {
+                if (value) {
+                  setCommentarySettings({
+                    ...commentarySettings,
+                    detail: value as typeof commentarySettings.detail,
+                  });
+                }
+              }}
+            />
+          )}
 
           <Group justify="right">
             <Button type="submit">{t("Board.Analysis.Analyze")}</Button>

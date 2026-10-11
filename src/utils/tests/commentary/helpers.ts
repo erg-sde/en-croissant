@@ -2,7 +2,7 @@ import i18next from "i18next";
 import type { MoveFacts } from "@/bindings";
 import enUS from "@/translation/en-US.json";
 import type { CommentaryRun } from "@/utils/commentary/report";
-import type { Translate } from "@/utils/commentary/segmentize";
+import { pieceWords, type Translate } from "@/utils/commentary/segmentize";
 import fixtures from "./fixtures/moveFacts.json";
 
 export type FixtureName = keyof typeof fixtures;
@@ -38,8 +38,6 @@ export function translator(
     return (key, options) => String(instance.t(key as string, options as never));
 }
 
-const PIECES = ["pawn", "knight", "bishop", "rook", "queen", "king"];
-
 export function run(lang = "en-US", t: Translate = translator(lang)): CommentaryRun {
     return {
         t,
@@ -48,7 +46,7 @@ export function run(lang = "en-US", t: Translate = translator(lang)): Commentary
         settings: { detail: "keyMoments", extendedGlyphs: true },
         perspective: "both",
         appVersion: "test",
-        pieceWords: PIECES.map((p) => t(`Commentary.Piece.${p}`)),
+        pieceWords: pieceWords(t),
         now: 0,
     };
 }
