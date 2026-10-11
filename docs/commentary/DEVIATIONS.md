@@ -154,6 +154,62 @@ actually moved. A king never captures onto a defended square inside an exchange.
   test for it: the pass lives inside `analyze_game`, which needs a Tauri runtime; the token and
   guard semantics it relies on are tested in slice 1.
 
+### Slice 8: what lands with the model-written text instead
+
+- `CommentarySentence` has no `claims` field, and `Claim`/`Slots` are not defined yet: deterministic
+  sentences make no claims, and the types arrive with the model's response schema (slice 12).
+- Validation rules implemented: 1 (citations), 2 (references within the cited facts' vocabulary),
+  3 (pieces on their squares, moves legal for their side), 4 (no literal square, digit or piece word
+  in the template, applied to deterministic templates too, which makes a translator's mistake a
+  dropped sentence rather than an unchecked one) and 8 (forbidden tokens, word budget). Rules 5-7
+  (claim entailment and the relation, magnitude and motif lexicons) only check model-written text
+  and arrive with it.
+- No `ProgressStage::Commentary`, `ReportState.stage` or `treeRegistry.activeRuns` yet: the
+  deterministic stage runs in milliseconds inside the report's completion handler, so there is no
+  second stage to show or reconcile. They arrive with narration (slice 12).
+
+### Slice 8: interface details
+
+- `narrateMove` returns `SentenceDraft { template, sentence }`: the translated template is needed by
+  rule 4 and is not stored.
+- `buildMoveCommentary` (new module `report.ts`) chains extended glyphs, selection, narration and
+  validation into a `MoveCommentary`, so the whole per-move pipeline is unit-tested; `ReportModal`
+  calls it for each move. `fingerprint.ts` hashes the inputs with FNV-1a.
+- `applyReport(analysis, glyphs, options, commentary)` takes per-move `{ extended, commentary }`
+  results; the plan's separate `snapshot` and `records` arguments are covered by `options.runId` and
+  the position checks of slice 6. A move without commentary in a re-run loses its stale record.
+- `restoreCommentary` (validate.ts) re-brands a stored record after `moveCommentarySchema` accepts
+  it; session storage keeps no brand.
+- `createZodStorage` takes a schema whose input type is `unknown`, so a schema with defaults (the
+  commentary settings) can back an atom. Existing callers are unaffected.
+- The frontend tests run on `MoveFacts` written by the Rust extractor (an ignored test,
+  `write_frontend_fixtures`), so both sides share one set of fixtures.
+
+### Slice 8: selection and wording choices
+
+- Kind precedence: a terminal mate, then ⊗ (a missed punishment is the more specific verdict), then
+  the mistake glyphs, then the plan's order. `Miss` weighs 80, like the other criticality facts
+  (the plan's weight list does not name it).
+- After the mandatory facts, a mate, an opening or a novelty is said on its own (an opening may add
+  the novelty); the parent's second line is added only to verdicts about the alternatives (only
+  move, clearly best, sacrifice); a mate transition is not added when a chosen line already shows
+  the mate. When the move played was the engine's second choice, that line is never called "the
+  alternative".
+- Templates make no claim of intent: a SEE-defined `Sacrifice` is "puts the bishop on f7 en prise",
+  because the same fact describes a blunder. Mate templates name the mating side, so they stay true
+  whichever side mates. A material outcome without a single piece uses the outcome key
+  `MaterialGain`. Lines are cited through `Commentary.<Kind>.<Slot>.<Outcome>` with a
+  `Commentary.Any.<Slot>.<Outcome>` fallback, so not every kind needs every combination.
+- A back-rank motif is listed only when the mating move lands on that rank (a fix to slice 7b's line
+  motifs; `Qxf7#` was described as a back-rank mate).
+
+### Slice 8: deferred presentation
+
+Arrows are computed and stored on each record but not drawn yet (the `commentaryArrowsFamily` toggle
+and the Board layer), and the inline notation, the table segment and `TOGGLE_COMMENTARY` are not part
+of this slice. The card's move chips play the cited line only while the report's facts are in memory
+(after a reload the text and chips remain, without the "What this is based on" list).
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
