@@ -118,6 +118,42 @@ and the result may be negative. `capture_see(before, mv)` gives `PlayedMoveFacts
 value plus `see` on the destination after the move), so a capture is judged with the piece that
 actually moved. A king never captures onto a defended square inside an exchange.
 
+### Slice 7b: extraction interface details
+
+- `extract_move_facts(ctx) -> Option<MoveFacts>` (the plan shows `-> MoveFacts`): `None` when the
+  position after the move has no exact line, which is the plan's own rule ("a position whose exact
+  set is empty gets `facts: None`").
+- `FactsContext` takes the computed `time: Option<TimeFacts>` (from `time::time_facts` over a
+  `Clocks` view of `AnalysisOptions`) instead of a raw clock input, and has no `threat_line` yet:
+  the threat search that fills it is slice 10. Until then `LineOrigin::Threat` and
+  `threats::null_move_fen` carry a commented `#[allow(dead_code)]`, and `MoveFacts.threat` is
+  always `None`.
+- `AnalysisOptions.clocks`, `increment_s` and `initial_s` arrive here with their reader (deferred
+  from slice 6), together with `with_facts`.
+- `commentary/mod.rs` does not re-export `FACTS_SCHEMA_VERSION`: nothing outside `facts` uses it
+  yet and the unused import would fail clippy.
+
+### Slice 7b: readings of under-specified extractor rules
+
+- **`MateFound`**: the plan's condition "`before` is not a mate for the mover" cannot hold when the
+  played move is the parent's mating line, because `EvalFacts.before` is that same parent eval. The
+  extractor reads "before" as the evaluation before the opponent's previous move (`prev.before`):
+  the mover's mate is new if it was not there one move earlier. `mate_in` counts the mover's moves
+  including the move played (the played line's own `Mate(n)` when it is among the parent's lines,
+  otherwise the after-position's `n + 1`). The mating move itself (terminal) gets no mate-transition
+  fact; it is narrated as `Commentary.Mate`.
+- **Material cash-in** is searched only within the first `MAX_SHOWN_PLIES` (6) plies, so the shown
+  part of a line always contains the capture its outcome names.
+- **Line motifs** (per shown ply, on the position the move leads to): a fork by the moved piece,
+  discovered attacks, a pin or skewer by the moved piece, enemy pieces it attacks that are trapped,
+  a passed pawn it creates, a promotion, mate-in-one threats; for a mating line also a back-rank
+  weakness at the end. Duplicates are dropped.
+- **`OpeningFacts`** is attached only to the move whose position is the last named one
+  (`MoveFacts.index == OpeningMatch.index`).
+- **Cancellation** is checked between positions of the facts pass, as planned. There is no unit
+  test for it: the pass lives inside `analyze_game`, which needs a Tauri runtime; the token and
+  guard semantics it relies on are tested in slice 1.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
