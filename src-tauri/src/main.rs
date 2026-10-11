@@ -4,8 +4,6 @@
 )]
 
 mod chess;
-// The facts extractors are wired into analyze_game in the next slice (7b).
-#[allow(dead_code, unused_imports)]
 mod commentary;
 mod db;
 mod engine;

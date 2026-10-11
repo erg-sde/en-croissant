@@ -123,6 +123,7 @@ pub enum LineOrigin {
     /// The position after the move (the opponent's best reply).
     After,
     /// The position after the move with the turn passed back (what the mover threatens).
+    #[allow(dead_code)] // Produced by the threat search (slice 10).
     Threat,
 }
 
@@ -369,4 +370,46 @@ pub struct MoveFacts {
     pub opening: Option<OpeningFacts>,
     pub novelty: bool,
     pub time: Option<TimeFacts>,
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::*;
+
+    #[test]
+    fn wire_format_is_camel_case_like_the_bindings() {
+        let only = Criticality::OnlyMove {
+            margin: 12.5,
+            second_win: 30.0,
+        };
+        assert_eq!(
+            serde_json::to_value(only).unwrap(),
+            json!({ "kind": "onlyMove", "margin": 12.5, "secondWin": 30.0 })
+        );
+        let discovered = Motif::DiscoveredAttack {
+            moved_from: "e2".into(),
+            revealed: "e1".into(),
+            target: "e8".into(),
+            is_check: true,
+        };
+        assert_eq!(
+            serde_json::to_value(discovered).unwrap(),
+            json!({ "kind": "discoveredAttack", "movedFrom": "e2", "revealed": "e1", "target": "e8", "isCheck": true })
+        );
+        let outcome = LineOutcome::Material {
+            pawns: 3,
+            piece: Some(PieceKind::Knight),
+            at_ply: 3,
+        };
+        assert_eq!(
+            serde_json::to_value(outcome).unwrap(),
+            json!({ "kind": "material", "pawns": 3, "piece": "knight", "atPly": 3 })
+        );
+        assert_eq!(
+            serde_json::to_value(EvalValue::Mate(-2)).unwrap(),
+            json!({ "type": "mate", "value": -2 })
+        );
+    }
 }

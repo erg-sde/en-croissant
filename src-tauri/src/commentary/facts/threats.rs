@@ -13,6 +13,7 @@ pub fn null_move(pos: &Chess) -> Option<Chess> {
 }
 
 /// [`null_move`] as a FEN for the engine.
+#[allow(dead_code)] // Used by the threat search (slice 10).
 pub fn null_move_fen(pos: &Chess) -> Option<String> {
     null_move(pos).map(|p| Fen::from_position(p, EnPassantMode::Legal).to_string())
 }

@@ -11,7 +11,7 @@ use log::{info, warn};
 use nonzero_ext::*;
 use serde::{Deserialize, Serialize};
 use shakmaty::{
-    fen::Fen, san::SanPlus, uci::UciMove, ByColor, CastlingMode, Chess, Color, EnPassantMode,
+    fen::Fen, san::SanPlus, uci::UciMove, ByColor, CastlingMode, Chess, Color, EnPassantMode, Move,
     Position, Role,
 };
 use specta::Type;
@@ -24,12 +24,18 @@ use vampirc_uci::{
 };
 
 use crate::{
+    commentary::facts::{
+        extract_move_facts,
+        time::{time_facts, Clocks},
+        EvalFacts, FactsContext, MoveFacts,
+    },
     db::{is_position_in_db, GameQuery, PositionQueryJs},
     engine::{
         parse_fen_and_apply_moves, BaseEngine, EngineLog, EngineOption, EngineReader, GoMode,
     },
     error::Error,
     jobs::is_cancelled,
+    opening::get_opening_match,
     progress::{AppProgress, ProgressGuard, ProgressStage},
     AppState,
 };
@@ -152,16 +158,16 @@ impl EngineProcess {
 #[derive(Clone, Serialize, Debug, Derivative, Type)]
 #[derivative(Default)]
 pub struct BestMoves {
-    nodes: u32,
-    depth: u32,
-    score: Score,
+    pub(crate) nodes: u32,
+    pub(crate) depth: u32,
+    pub(crate) score: Score,
     #[serde(rename = "uciMoves")]
-    uci_moves: Vec<String>,
+    pub(crate) uci_moves: Vec<String>,
     #[serde(rename = "sanMoves")]
-    san_moves: Vec<String>,
+    pub(crate) san_moves: Vec<String>,
     #[derivative(Default(value = "1"))]
-    multipv: u16,
-    nps: u32,
+    pub(crate) multipv: u16,
+    pub(crate) nps: u32,
 }
 
 #[derive(Serialize, Debug, Clone, Type, Event)]
@@ -479,6 +485,10 @@ pub struct MoveAnalysis {
     fen: String,
     /// The game is over in this position; it was not searched and `best` is empty.
     terminal: bool,
+    /// What was counted about the move that led here; requested with `with_facts`, never for
+    /// index 0.
+    #[specta(optional)]
+    facts: Option<MoveFacts>,
 }
 
 #[derive(Deserialize, Debug, Default, Type)]
@@ -492,6 +502,18 @@ pub struct AnalysisOptions {
     /// Lines searched per position, clamped to 2..=4. Defaults to 2.
     #[serde(default)]
     pub multipv: Option<u16>,
+    /// Compute `MoveAnalysis.facts` for every move after the engine pass.
+    #[serde(default)]
+    pub with_facts: bool,
+    /// Seconds left on the mover's clock after each move, aligned to `moves`.
+    #[serde(default)]
+    pub clocks: Option<Vec<Option<f32>>>,
+    /// Increment per move in seconds, from the time control.
+    #[serde(default)]
+    pub increment_s: Option<f32>,
+    /// Initial time in seconds, from the time control.
+    #[serde(default)]
+    pub initial_s: Option<f32>,
 }
 
 const DEFAULT_REPORT_MULTIPV: u16 = 2;
@@ -503,6 +525,9 @@ fn report_multipv(requested: Option<u16>) -> u16 {
 /// One position of a report: the position reached by `moves` from the root.
 #[derive(Debug)]
 struct ReportPosition {
+    position: Chess,
+    /// The move that led here; `None` for the root.
+    last_move: Option<Move>,
     fen: Fen,
     moves: Vec<String>,
     is_sacrifice: bool,
@@ -518,6 +543,8 @@ fn report_positions(fen: &str, moves: &[String]) -> Result<Vec<ReportPosition>, 
     let mut chess: Chess = setup.position(castling_mode)?;
 
     let mut positions = vec![ReportPosition {
+        position: chess.clone(),
+        last_move: None,
         fen: Fen::from_position(chess.clone(), EnPassantMode::Legal),
         moves: vec![],
         is_sacrifice: false,
@@ -530,6 +557,8 @@ fn report_positions(fen: &str, moves: &[String]) -> Result<Vec<ReportPosition>, 
         let terminal = chess.is_game_over();
         let is_sacrifice = !terminal && naive_eval(&previous_pos) > -naive_eval(&chess) + 100;
         positions.push(ReportPosition {
+            position: chess.clone(),
+            last_move: Some(m),
             fen: Fen::from_position(chess.clone(), EnPassantMode::Legal),
             moves: moves[..=i].to_vec(),
             is_sacrifice,
@@ -769,6 +798,40 @@ pub async fn analyze_game(
             }
         }
     }
+    if options.with_facts {
+        let fens = analysis.iter().map(|a| a.fen.clone()).collect();
+        let opening = get_opening_match(fens)?;
+        let clocks = Clocks {
+            clocks: options.clocks.as_deref().unwrap_or_default(),
+            increment_s: options.increment_s,
+            initial_s: options.initial_s,
+        };
+        let mut prev: Option<EvalFacts> = None;
+        for i in 1..analysis.len() {
+            if is_cancelled(&cancel) {
+                guard.cancelled()?;
+                return Err(Error::AnalysisCancelled);
+            }
+            let Some(mv) = &positions[i].last_move else {
+                continue;
+            };
+            let facts = extract_move_facts(&FactsContext {
+                index: i as u32,
+                before: &positions[i - 1].position,
+                mv,
+                parent_lines: &analysis[i - 1].best,
+                own_lines: &analysis[i].best,
+                opening: opening.as_ref(),
+                prev: prev.as_ref(),
+                time: time_facts(&clocks, i - 1),
+                terminal: positions[i].terminal,
+                novelty: analysis[i].novelty,
+            });
+            prev = facts.as_ref().map(|f| f.eval.clone());
+            analysis[i].facts = facts;
+        }
+    }
+
     guard.finished()?;
     Ok(analysis)
 }
@@ -1116,6 +1179,64 @@ mod tests {
         assert!(matches!(result, Err(Error::AnalysisCancelled)));
         assert!(started.elapsed() < Duration::from_secs(3));
         proc.kill().await.unwrap();
+    }
+
+    #[tokio::test]
+    #[ignore = "needs a UCI engine in EC_TEST_ENGINE"]
+    async fn facts_from_real_engine_lines() {
+        // 1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6?? 4. Qxf7#
+        let moves = uci("e2e4 e7e5 d1h5 b8c6 f1c4 g8f6 h5f7");
+        let positions = report_positions(START, &moves).unwrap();
+        let (mut proc, mut reader) = test_engine(2).await;
+        let (_cancel, mut rx) = watch::channel(false);
+        let mut lines = Vec::new();
+        for position in &positions {
+            if position.terminal {
+                lines.push(Vec::new());
+                continue;
+            }
+            proc.set_options(EngineOptions {
+                fen: START.to_string(),
+                moves: position.moves.clone(),
+                extra_options: vec![EngineOption {
+                    name: "MultiPV".to_string(),
+                    value: "2".to_string(),
+                }],
+            })
+            .await
+            .unwrap();
+            lines.push(
+                search_once(&mut proc, &mut reader, &GoMode::Depth(10), &mut rx)
+                    .await
+                    .unwrap(),
+            );
+        }
+        proc.kill().await.unwrap();
+
+        let facts_for = |i: usize| {
+            extract_move_facts(&FactsContext {
+                index: i as u32,
+                before: &positions[i - 1].position,
+                mv: positions[i].last_move.as_ref().unwrap(),
+                parent_lines: &lines[i - 1],
+                own_lines: &lines[i],
+                opening: None,
+                prev: None,
+                time: None,
+                terminal: positions[i].terminal,
+                novelty: false,
+            })
+            .unwrap()
+        };
+        let nf6 = facts_for(6);
+        let refutation = &nf6.lines[nf6.refutation.unwrap() as usize];
+        assert_eq!(refutation.pv_san[0], "Qxf7#");
+        assert!(matches!(
+            refutation.outcome,
+            crate::commentary::facts::LineOutcome::Mate { mate_in: 1, .. }
+        ));
+        let mate = facts_for(7);
+        assert!(mate.terminal && mate.played.gives_mate);
     }
 
     #[tokio::test]
