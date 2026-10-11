@@ -8,6 +8,7 @@ mod db;
 mod engine;
 mod error;
 mod game;
+mod jobs;
 
 mod fs;
 mod lexer;
@@ -26,6 +27,7 @@ use dashmap::DashMap;
 use db::{DatabaseProgress, GameQuery, NormalizedGame, PositionStats};
 use derivative::Derivative;
 use game::GameManager;
+use jobs::JobRegistry;
 use progress::{clear_progress, get_progress, ProgressEvent, ProgressStore};
 
 use log::LevelFilter;
@@ -70,7 +72,6 @@ use crate::{
         get_opening_from_fen, get_opening_from_fens, get_opening_from_name, search_opening_name,
     },
 };
-use std::sync::atomic::AtomicBool;
 use tokio::sync::Semaphore;
 
 #[derive(Derivative)]
@@ -89,7 +90,7 @@ pub struct AppState {
     pgn_offsets: DashMap<String, Vec<u64>>,
 
     engine_processes: DashMap<(String, String), Arc<tokio::sync::Mutex<EngineProcess>>>,
-    analysis_cancel_flags: DashMap<String, Arc<AtomicBool>>,
+    jobs: JobRegistry,
     auth: AuthState,
     game_manager: GameManager,
     progress_state: ProgressStore,
