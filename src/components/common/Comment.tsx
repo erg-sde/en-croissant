@@ -2,16 +2,13 @@ import { Typography } from "@mantine/core";
 import { memo } from "react";
 
 import Markdown from "react-markdown";
-import rehypeRaw from "rehype-raw";
 import remarkGfm from "remark-gfm";
+import { remarkUnderline } from "@/utils/remarkUnderline";
 
-function normalizeTiptapMarkdown(comment: string) {
-  return comment.replace(/\+\+([\s\S]+?)\+\+/g, "<u>$1</u>");
-}
-
+// Comments come from the user and from imported PGN files, so they are rendered as Markdown only:
+// raw HTML in a comment is never turned into elements.
 function Comment({ comment }: { comment: string }) {
-  const normalizedComment = normalizeTiptapMarkdown(comment);
-  const multipleLine = normalizedComment.split("\n").filter((v) => v.trim() !== "").length > 1;
+  const multipleLine = comment.split("\n").filter((v) => v.trim() !== "").length > 1;
 
   return (
     <Typography
@@ -26,9 +23,9 @@ function Comment({ comment }: { comment: string }) {
           a: ({ node: _node, ...props }) => <a {...props} target="_blank" rel="noreferrer" />,
           p: ({ node: _node, ...props }) => (multipleLine ? <p {...props} /> : <span {...props} />),
         }}
-        rehypePlugins={[rehypeRaw, remarkGfm]}
+        remarkPlugins={[remarkGfm, remarkUnderline]}
       >
-        {normalizedComment}
+        {comment}
       </Markdown>
     </Typography>
   );
