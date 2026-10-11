@@ -6,6 +6,7 @@ import { isPawns, parseComment } from "chessops/pgn";
 import { makeSan, parseSan } from "chessops/san";
 import { commands, type Outcome, type Score, type Token } from "@/bindings";
 import { ANNOTATION_INFO, isBasicAnnotation, NAG_INFO } from "./annotation";
+import { toPgnSafe } from "./commentary/pgnSafe";
 import { parseSanOrUci, positionFromFen } from "./chessops";
 import { harmonicMean, isPrefix, mean } from "./misc";
 import { formatScore, getAccuracy, getCPLoss, INITIAL_SCORE } from "./score";
@@ -71,7 +72,7 @@ export function getMoveText(
             for (const annotation of tree.annotations) {
                 if (annotation === "") continue;
                 moveText += isBasicAnnotation(annotation)
-                    ? tree.annotations
+                    ? annotation
                     : ` $${ANNOTATION_INFO[annotation].nag}`;
             }
         }
@@ -115,7 +116,7 @@ export function getMoveText(
         }
 
         if (opt.comments && tree.comment !== "") {
-            content += tree.comment;
+            content += toPgnSafe(tree.comment);
         }
         content += "} ";
 
