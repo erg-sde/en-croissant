@@ -51,6 +51,8 @@
     "Board.Analysis.NotAnalysed": "Not analysed",
     "Board.Analysis.RefDBRequired": "No reference database selected. Select one first in the databases page",
     "Board.Analysis.Report": "Report",
+    "Board.Analysis.ReportFailed": "Report failed",
+    "Board.Analysis.ReportFailed.Desc": "The report stopped before it was complete: {{error}}",
     "Board.Analysis.ReportGenerated": "Report generated",
     "Board.Analysis.Reversed": "Reversed analysis",
     "Board.Analysis.Reversed.Desc": "Analyze the game starting from the last move.",

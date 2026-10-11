@@ -6,6 +6,7 @@ import { isPawns, parseComment } from "chessops/pgn";
 import { makeSan, parseSan } from "chessops/san";
 import { commands, type Outcome, type Score, type Token } from "@/bindings";
 import { ANNOTATION_INFO, isBasicAnnotation, NAG_INFO } from "./annotation";
+import { toPgnSafe } from "./commentary/pgnSafe";
 import { parseSanOrUci, positionFromFen } from "./chessops";
 import { harmonicMean, isPrefix, mean } from "./misc";
 import { formatScore, getAccuracy, getCPLoss, INITIAL_SCORE } from "./score";
@@ -71,7 +72,7 @@ export function getMoveText(
             for (const annotation of tree.annotations) {
                 if (annotation === "") continue;
                 moveText += isBasicAnnotation(annotation)
-                    ? tree.annotations
+                    ? annotation
                     : ` $${ANNOTATION_INFO[annotation].nag}`;
             }
         }
@@ -115,7 +116,7 @@ export function getMoveText(
         }
 
         if (opt.comments && tree.comment !== "") {
-            content += tree.comment;
+            content += toPgnSafe(tree.comment);
         }
         content += "} ";
 
@@ -568,7 +569,9 @@ export function getGameStats(root: TreeNode) {
         };
     }
 
-    let prevScore: Score = root.score ?? INITIAL_SCORE;
+    // Losses are measured between consecutive scored plies only: an unscored ply breaks the chain,
+    // so the next scored ply is not charged with two plies of evaluation change.
+    let prevScore: Score | null = root.score ?? INITIAL_SCORE;
     const cplosses: ColorMap<number[]> = {
         white: [],
         black: [],
@@ -590,11 +593,11 @@ export function getGameStats(root: TreeNode) {
             }
         }
         const color = node.halfMoves % 2 === 1 ? "white" : "black";
-        if (node.score) {
+        if (node.score && prevScore) {
             cplosses[color].push(getCPLoss(prevScore.value, node.score.value, color));
             accuracies[color].push(getAccuracy(prevScore.value, node.score.value, color));
-            prevScore = node.score;
         }
+        prevScore = node.score;
     }
     const whiteCPL = mean(cplosses.white);
     const blackCPL = mean(cplosses.black);
