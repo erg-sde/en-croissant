@@ -1,48 +1,61 @@
 import { Button, Checkbox, Group, Modal, NumberInput, Select, Stack } from "@mantine/core";
 import { useForm } from "@mantine/form";
-import { useAtom, useAtomValue } from "jotai";
-import { atomWithStorage } from "jotai/utils";
+import { notifications } from "@mantine/notifications";
+import { IconX } from "@tabler/icons-react";
+import { getVersion } from "@tauri-apps/api/app";
+import { error as logError } from "@tauri-apps/plugin-log";
+import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { memo, useContext, useEffect, useMemo } from "react";
 import { useTranslation } from "react-i18next";
-import { useStore } from "zustand";
-import { commands, type GoMode } from "@/bindings";
+import { commands, type MoveAnalysis } from "@/bindings";
 import { TreeStateContext } from "@/components/common/TreeStateContext";
-import { enginesAtom, referenceDbAtom } from "@/state/atoms";
+import {
+  commentaryFactsFamily,
+  commentaryFactsKey,
+  commentarySettingsAtom,
+  enginesAtom,
+  referenceDbAtom,
+  reportSettingsAtom,
+  sessionsAtom,
+} from "@/state/atoms";
+import type { TreeStoreState } from "@/state/store/tree";
+import { treeRegistry } from "@/state/store/treeRegistry";
+import { getMainLine } from "@/utils/chess";
+import type { Annotation } from "@/utils/annotation";
+import { deriveGlyphs } from "@/utils/commentary/classify";
+import { buildMoveCommentary, type MoveCommentaryResult } from "@/utils/commentary/report";
+import { pieceWords, type Translate } from "@/utils/commentary/segmentize";
+import { resolvePerspective } from "@/utils/commentary/settings";
+import { takeMainlineSnapshot } from "@/utils/commentary/snapshot";
 import type { LocalEngine } from "@/utils/engines";
 
-const reportSettingsAtom = atomWithStorage("report-settings", {
-  novelty: true,
-  reversed: true,
-  variations: true,
-  goMode: { t: "Time", c: 500 } as Exclude<GoMode, { t: "Infinite" }>,
-  engine: "",
-});
+// Display string of `Error::AnalysisCancelled` (src-tauri/src/error.rs); command errors cross IPC as
+// their message. A cancelled report is not a failure and is never reported.
+const ANALYSIS_CANCELLED = "Analysis cancelled";
 
 function ReportModal({
   tab,
-  initialFen,
-  moves,
   reportingMode,
   closeReportingMode,
-  setInProgress,
+  onError,
 }: {
   tab: string;
-  initialFen: string;
-  moves: string[];
   reportingMode: boolean;
   closeReportingMode: () => void;
-  setInProgress: (value: boolean) => void;
+  onError: (error: string | null) => void;
 }) {
-  const { t } = useTranslation();
+  const { t, i18n } = useTranslation();
 
   const referenceDb = useAtomValue(referenceDbAtom);
+  const sessions = useAtomValue(sessionsAtom);
+  const [commentarySettings, setCommentarySettings] = useAtom(commentarySettingsAtom);
+  const setCommentaryFacts = useSetAtom(commentaryFactsFamily(tab));
   const engines = useAtomValue(enginesAtom);
   const localEngines = useMemo(
     () => (engines ?? []).filter((e): e is LocalEngine => e.type === "local"),
     [engines],
   );
   const store = useContext(TreeStateContext)!;
-  const addAnalysis = useStore(store, (s) => s.addAnalysis);
 
   const [reportSettings, setReportSettings] = useAtom(reportSettingsAtom);
 
@@ -69,15 +82,61 @@ function ReportModal({
     form.setValues({ ...reportSettings, engine });
   }, [localEngines, reportSettings]);
 
+  function reportFailed(detail: string) {
+    notifications.show({
+      title: t("Board.Analysis.ReportFailed"),
+      message: detail,
+      color: "red",
+      icon: <IconX />,
+    });
+    onError(detail);
+  }
+
   function analyze() {
     setReportSettings(form.values);
-    setInProgress(true);
+    onError(null);
     closeReportingMode();
     const engine = localEngines.find((e) => e.id === form.values.engine);
     const engineSettings = (engine?.settings ?? []).map((s) => ({
       ...s,
       value: s.value?.toString() ?? "",
     }));
+    const showVariations = form.values.variations;
+
+    // The run is bound to the mainline as it is now. The results are written to the tab's live store
+    // when they arrive (it may have been recreated meanwhile), and only onto positions that still
+    // match what the engine searched.
+    const { root, headers, beginReport } = store.getState();
+    const snapshot = takeMainlineSnapshot(root, headers);
+    const moves = getMainLine(root);
+    const explain = commentarySettings.explain;
+    beginReport(snapshot);
+
+    // Deterministic commentary for every analysed move, from the facts the engine pass returned.
+    const commentaryFor = async (
+      analysis: MoveAnalysis[],
+      glyphs: (Annotation | null)[],
+    ): Promise<(MoveCommentaryResult | null)[]> => {
+      const translate: Translate = (key, options) => String(i18n.t(key, options));
+      const run = {
+        t: translate,
+        lang: i18n.language,
+        rootHalfMoves: root.halfMoves,
+        settings: commentarySettings,
+        perspective: resolvePerspective(headers, sessions, commentarySettings.perspective),
+        appVersion: await getVersion(),
+        pieceWords: pieceWords(translate),
+        now: Date.now(),
+      };
+      return analysis.map((entry, i) =>
+        entry.facts ? buildMoveCommentary(entry.facts, glyphs[i], run) : null,
+      );
+    };
+    const finish = (write?: (live: TreeStoreState) => void) =>
+      treeRegistry.withStore(tab, (live) => {
+        write?.(live.getState());
+        live.getState().endReport(snapshot.runId);
+      });
 
     commands
       .analyzeGame(
@@ -86,21 +145,48 @@ function ReportModal({
         form.values.goMode,
         {
           annotateNovelties: form.values.novelty,
-          fen: initialFen,
+          fen: snapshot.rootFen,
           referenceDb,
           reversed: form.values.reversed,
           moves,
+          withFacts: explain,
+          clocks: snapshot.plies.slice(1).map((ply) => ply.clock ?? null),
+          incrementS: snapshot.incrementS,
+          initialS: snapshot.initialS,
         },
         engineSettings,
       )
-      .then((analysis) => {
+      .then(async (analysis) => {
         if (analysis.status === "ok") {
-          addAnalysis(analysis.data, {
-            showVariations: form.values.variations,
-          });
+          const glyphs = deriveGlyphs(analysis.data, snapshot);
+          const options = { showVariations, runId: snapshot.runId };
+          if (!explain) {
+            finish((live) => live.addAnalysis(analysis.data, glyphs, options));
+            return;
+          }
+          const commentary = await commentaryFor(analysis.data, glyphs);
+          setCommentaryFacts(
+            new Map(
+              analysis.data.flatMap((entry, i) =>
+                entry.facts
+                  ? [[commentaryFactsKey(snapshot.rootFen, moves.slice(0, i)), entry.facts]]
+                  : [],
+              ),
+            ),
+          );
+          finish((live) => live.applyReport(analysis.data, glyphs, options, commentary));
+          return;
+        }
+        finish();
+        if (analysis.error !== ANALYSIS_CANCELLED) {
+          reportFailed(analysis.error);
         }
       })
-      .finally(() => setInProgress(false));
+      .catch((e) => {
+        finish();
+        logError(`Report failed: ${e}`);
+        reportFailed(t("Errors.Unknown"));
+      });
   }
 
   return (
@@ -174,6 +260,36 @@ function ReportModal({
             description={t("Board.Analysis.ShowVariations.Desc")}
             {...form.getInputProps("variations", { type: "checkbox" })}
           />
+
+          <Checkbox
+            label={t("Settings.Commentary.Explain")}
+            description={t("Settings.Commentary.Explain.Desc")}
+            checked={commentarySettings.explain}
+            onChange={(event) =>
+              setCommentarySettings({ ...commentarySettings, explain: event.currentTarget.checked })
+            }
+          />
+
+          {commentarySettings.explain && (
+            <Select
+              label={t("Settings.Commentary.Detail")}
+              allowDeselect={false}
+              data={[
+                { label: t("Settings.Commentary.Detail.KeyMoments"), value: "keyMoments" },
+                { label: t("Settings.Commentary.Detail.Mistakes"), value: "mistakes" },
+                { label: t("Settings.Commentary.Detail.AllMoves"), value: "allMoves" },
+              ]}
+              value={commentarySettings.detail}
+              onChange={(value) => {
+                if (value) {
+                  setCommentarySettings({
+                    ...commentarySettings,
+                    detail: value as typeof commentarySettings.detail,
+                  });
+                }
+              }}
+            />
+          )}
 
           <Group justify="right">
             <Button type="submit">{t("Board.Analysis.Analyze")}</Button>

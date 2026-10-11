@@ -5,6 +5,7 @@ import { z } from "zod";
 import type { StoreApi } from "zustand";
 import { commands } from "@/bindings";
 import { type FileMetadata, fileMetadataSchema } from "@/components/files/file";
+import { writeSessionState } from "@/state/store/debouncedStorage";
 import type { TreeStoreState } from "@/state/store/tree";
 import { getPGN, parsePGN } from "./chess";
 import { type GameHeaders, getGameName } from "./treeReducer";
@@ -120,7 +121,7 @@ export async function createTab({
                 tree.position = position;
             }
         }
-        sessionStorage.setItem(id, JSON.stringify({ version: 0, state: tree }));
+        writeSessionState(id, { version: 0, state: tree });
     }
 
     setTabs((prev) => {
