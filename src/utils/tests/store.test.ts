@@ -509,3 +509,37 @@ test("should handle promoteVariation", () => {
         },
     });
 });
+
+test("addAnalysis skips a position the engine returned no lines for", () => {
+    const line = (san: string, uci: string, cp: number) => ({
+        best: [
+            {
+                depth: 1,
+                multipv: 1,
+                nodes: 1,
+                score: { value: { type: "cp" as const, value: cp }, wdl: null },
+                nps: 1000,
+                sanMoves: [san],
+                uciMoves: [uci],
+            },
+        ],
+        novelty: false,
+        is_sacrifice: false,
+    });
+    store.getState().makeMoves({ payload: ["e4", "d5", "Nf3"] });
+    store
+        .getState()
+        .addAnalysis([
+            line("e4", "e2e4", 10),
+            line("d5", "d7d5", 20),
+            { best: [], novelty: false, is_sacrifice: false },
+            line("Nf6", "g8f6", 30),
+        ]);
+
+    const e4 = store.getState().root.children[0];
+    const d5 = e4.children[0];
+    const nf3 = d5.children[0];
+    expect(e4.score?.value).toStrictEqual({ type: "cp", value: 20 });
+    expect(d5.score).toBeNull();
+    expect(nf3.score?.value).toStrictEqual({ type: "cp", value: 30 });
+});
