@@ -64,24 +64,25 @@ describe("toPgnSafe", () => {
     });
 
     test("output is comment-safe and stable for generated hazardous text", () => {
-        for (const text of hazardousTexts(500)) {
+        const unsafe = hazardousTexts(500).filter((text) => {
             const safe = toPgnSafe(text);
-            const label = JSON.stringify(text);
-            expect(safe, label).not.toMatch(/[{}]/);
-            expect(safe, label).not.toContain("[%");
-            expect(hasControlCharacter(safe), label).toBe(false);
-            expect(toPgnSafe(safe), label).toBe(safe);
-        }
+            return (
+                /[{}]/.test(safe) ||
+                safe.includes("[%") ||
+                hasControlCharacter(safe) ||
+                toPgnSafe(safe) !== safe
+            );
+        });
+        expect(unsafe).toStrictEqual([]);
     });
 
     test("a comment made from generated hazardous text keeps the game intact", () => {
-        for (const text of hazardousTexts(200)) {
-            const label = JSON.stringify(text);
+        const broken = hazardousTexts(200).filter((text) => {
             const games = parsePgn(`1. e4 {${toPgnSafe(text)}} e5 2. Nf3 *\n\n1. d4 *\n`);
-            expect(games, label).toHaveLength(2);
-            const mainline = [...games[0].moves.mainline()].map((node) => node.san);
-            expect(mainline, label).toStrictEqual(["e4", "e5", "Nf3"]);
-        }
+            const mainline = games[0] ? [...games[0].moves.mainline()].map((node) => node.san) : [];
+            return games.length !== 2 || mainline.join(" ") !== "e4 e5 Nf3";
+        });
+        expect(broken).toStrictEqual([]);
     });
 });
 
