@@ -104,6 +104,18 @@ async getOpeningFromFens(fens: string[]) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Finds the last position in `fens` that is in the opening table. Positions are compared
+ * without move counters, so transpositions match; FENs that do not parse are skipped.
+ */
+async getOpeningMatch(fens: string[]) : Promise<Result<OpeningMatch | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_opening_match", { fens }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getOpeningFromName(name: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_opening_from_name", { name }) };
@@ -515,6 +527,14 @@ export type GoMode = { t: "PlayersTime"; c: PlayersTime } | { t: "Depth"; c: num
 export type MoveAnalysis = { best: BestMoves[]; novelty: boolean; is_sacrifice: boolean }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
 export type OpeningBookConfig = { path: string; maxPly?: bigint }
+/**
+ * The deepest position of a game found in the opening table.
+ */
+export type OpeningMatch = { eco: string; name: string; pgn: string | null; 
+/**
+ * Index of the matching position in the list that was searched.
+ */
+index: number }
 export type OutOpening = { name: string; fen: string }
 export type Outcome = "1-0" | "0-1" | "1/2-1/2" | "*"
 export type Player = { id: number; name: string | null; elo: number | null }
