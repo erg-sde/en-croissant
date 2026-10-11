@@ -1,11 +1,8 @@
 use std::{
     fmt::Display,
     path::PathBuf,
-    sync::{
-        atomic::{AtomicBool, Ordering},
-        Arc,
-    },
-    time::Instant,
+    sync::Arc,
+    time::{Duration, Instant},
 };
 
 use derivative::Derivative;
@@ -19,7 +16,7 @@ use shakmaty::{
 };
 use specta::Type;
 use tauri_specta::Event;
-use tokio::sync::Mutex;
+use tokio::sync::{watch, Mutex};
 use vampirc_uci::{
     parse_one,
     uci::{Score, ScoreValue},
@@ -32,7 +29,8 @@ use crate::{
         parse_fen_and_apply_moves, BaseEngine, EngineLog, EngineOption, EngineReader, GoMode,
     },
     error::Error,
-    progress::update_progress,
+    jobs::is_cancelled,
+    progress::{AppProgress, ProgressGuard, ProgressStage},
     AppState,
 };
 
@@ -190,11 +188,26 @@ fn invert_score(score: Score) -> Score {
     }
 }
 
+/// Whether a UCI score is exact or a fail-high/fail-low bound from an interrupted search.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Bound {
+    Exact,
+    Lower,
+    Upper,
+}
+
+/// One parsed `info` line. Bound lines carry an unreliable score and a truncated PV.
+#[derive(Debug)]
+struct ParsedLine {
+    line: BestMoves,
+    bound: Bound,
+}
+
 fn parse_uci_attrs(
     attrs: Vec<UciInfoAttribute>,
     fen: &Fen,
     moves: &[String],
-) -> Result<BestMoves, Error> {
+) -> Result<ParsedLine, Error> {
     let mut best_moves = BestMoves::default();
 
     let mut pos = parse_fen_and_apply_moves(&fen.to_string(), moves)?;
@@ -234,11 +247,22 @@ fn parse_uci_attrs(
         return Err(Error::NoMovesFound);
     }
 
+    let bound = if best_moves.score.lower_bound == Some(true) {
+        Bound::Lower
+    } else if best_moves.score.upper_bound == Some(true) {
+        Bound::Upper
+    } else {
+        Bound::Exact
+    };
+
     if turn == Color::Black {
         best_moves.score = invert_score(best_moves.score);
     }
 
-    Ok(best_moves)
+    Ok(ParsedLine {
+        line: best_moves,
+        bound,
+    })
 }
 
 #[derive(Deserialize, Debug, Clone, Type, Derivative, Eq, PartialEq)]
@@ -369,10 +393,11 @@ pub async fn get_best_moves(
         match parse_one(&line) {
             UciMessage::Info(attrs) => {
                 match parse_uci_attrs(attrs, &proc.options.fen.parse()?, &proc.options.moves) {
-                    Ok(best_moves) => {
-                        if best_moves.score.lower_bound == Some(true)
-                            || best_moves.score.upper_bound == Some(true)
-                        {
+                    Ok(ParsedLine {
+                        line: best_moves,
+                        bound,
+                    }) => {
+                        if bound != Bound::Exact {
                             continue;
                         }
                         let multipv = best_moves.multipv;
@@ -462,12 +487,122 @@ pub struct AnalysisOptions {
     pub reversed: bool,
 }
 
+/// Assembles complete MultiPV sets from a stream of `info` lines, keeping exact lines only.
+///
+/// A set is complete when lines `1..=real_multipv` arrive in order at the same depth. The result
+/// is the last complete set at a depth no lower than any earlier complete set, so a search that
+/// ends on a bound or a partial set still reports the last exact one.
+struct MultiPvCollector {
+    real_multipv: usize,
+    pending: Vec<BestMoves>,
+    last_depth: u32,
+    best: Vec<BestMoves>,
+}
+
+impl MultiPvCollector {
+    fn new(real_multipv: u16) -> Self {
+        Self {
+            real_multipv: real_multipv as usize,
+            pending: Vec::new(),
+            last_depth: 0,
+            best: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, parsed: ParsedLine) {
+        if parsed.bound != Bound::Exact {
+            return;
+        }
+        let line = parsed.line;
+        if line.multipv == 1 {
+            self.pending.clear();
+        }
+        if line.multipv as usize != self.pending.len() + 1 {
+            return;
+        }
+        let depth = line.depth;
+        self.pending.push(line);
+        if self.pending.len() == self.real_multipv {
+            if self.pending.iter().all(|x| x.depth == depth) && depth >= self.last_depth {
+                self.best = std::mem::take(&mut self.pending);
+                self.last_depth = depth;
+            } else {
+                self.pending.clear();
+            }
+        }
+    }
+
+    fn into_best(self) -> Vec<BestMoves> {
+        self.best
+    }
+}
+
+/// How long a stopped engine gets to print its final `bestmove` before the search is abandoned.
+const STOP_GRACE: Duration = Duration::from_secs(2);
+
+/// Runs one search on the position already set on `proc` and returns the last complete exact
+/// MultiPV set (empty if the engine never produced one).
+///
+/// Cancellation is observed inside the read loop: the engine is told to `stop`, its output is
+/// drained up to `bestmove`, and the search returns `Error::AnalysisCancelled`.
+async fn search_once(
+    proc: &mut EngineProcess,
+    reader: &mut EngineReader,
+    go_mode: &GoMode,
+    cancel: &mut watch::Receiver<bool>,
+) -> Result<Vec<BestMoves>, Error> {
+    if matches!(go_mode, GoMode::Infinite) {
+        return Err(Error::InvalidGoMode);
+    }
+    if is_cancelled(cancel) {
+        return Err(Error::AnalysisCancelled);
+    }
+
+    let fen: Fen = proc.options.fen.parse()?;
+    let moves = proc.options.moves.clone();
+    let mut collector = MultiPvCollector::new(proc.real_multipv);
+
+    proc.go(go_mode).await?;
+    loop {
+        tokio::select! {
+            line = reader.next_line() => {
+                let Some(line) = line? else {
+                    return Err(Error::EngineDisconnected);
+                };
+                match parse_one(&line) {
+                    UciMessage::Info(attrs) => {
+                        if let Ok(parsed) = parse_uci_attrs(attrs, &fen, &moves) {
+                            collector.push(parsed);
+                        }
+                    }
+                    UciMessage::BestMove { .. } => return Ok(collector.into_best()),
+                    _ => {}
+                }
+            }
+            _ = cancel.changed() => {
+                proc.stop().await?;
+                let drained = tokio::time::timeout(STOP_GRACE, async {
+                    while let Some(line) = reader.next_line().await? {
+                        if matches!(parse_one(&line), UciMessage::BestMove { .. }) {
+                            break;
+                        }
+                    }
+                    Ok::<(), Error>(())
+                })
+                .await;
+                if let Ok(Err(e)) = drained {
+                    warn!("Engine output failed while stopping a search: {:?}", e);
+                }
+                return Err(Error::AnalysisCancelled);
+            }
+        }
+    }
+}
+
 #[tauri::command]
 #[specta::specta]
 pub async fn cancel_analysis(id: String, state: tauri::State<'_, AppState>) -> Result<(), Error> {
-    if let Some(flag) = state.analysis_cancel_flags.get(&id) {
-        flag.store(true, Ordering::SeqCst);
-    }
+    state.jobs.cancel(&id);
     Ok(())
 }
 
@@ -482,10 +617,16 @@ pub async fn analyze_game(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> Result<Vec<MoveAnalysis>, Error> {
-    let cancel_flag = Arc::new(AtomicBool::new(false));
-    state
-        .analysis_cancel_flags
-        .insert(id.clone(), cancel_flag.clone());
+    let guard = ProgressGuard::start(
+        AppProgress {
+            store: &state.progress_state,
+            app: &app,
+        },
+        &state.jobs,
+        id,
+        ProgressStage::Engine,
+    );
+    let mut cancel = guard.cancel_token();
 
     let path = PathBuf::from(&engine);
     let mut analysis: Vec<MoveAnalysis> = Vec::new();
@@ -528,19 +669,7 @@ pub async fn analyze_game(
     let mut novelty_found = false;
 
     for (i, (_, moves, _)) in fens.iter().enumerate() {
-        if cancel_flag.load(Ordering::SeqCst) {
-            proc.kill().await?;
-            state.analysis_cancel_flags.remove(&id);
-            return Err(Error::AnalysisCancelled);
-        }
-
-        update_progress(
-            &state.progress_state,
-            &app,
-            id.clone(),
-            (i as f32 / fens.len() as f32) * 100.0,
-            false,
-        )?;
+        guard.progress((i as f32 / fens.len() as f32) * 100.0)?;
 
         let mut extra_options = uci_options.clone();
         if !extra_options.iter().any(|x| x.name == "MultiPV") {
@@ -563,39 +692,20 @@ pub async fn analyze_game(
         })
         .await?;
 
-        proc.go(&go_mode).await?;
-
-        let mut current_analysis = MoveAnalysis::default();
-        while let Ok(Some(line)) = reader.next_line().await {
-            match parse_one(&line) {
-                UciMessage::Info(attrs) => {
-                    if let Ok(best_moves) =
-                        parse_uci_attrs(attrs, &proc.options.fen.parse()?, moves)
-                    {
-                        let multipv = best_moves.multipv;
-                        let cur_depth = best_moves.depth;
-                        if multipv as usize == proc.best_moves.len() + 1 {
-                            proc.best_moves.push(best_moves);
-                            if multipv == proc.real_multipv {
-                                if proc.best_moves.iter().all(|x| x.depth == cur_depth)
-                                    && cur_depth >= proc.last_depth
-                                {
-                                    current_analysis.best = proc.best_moves.clone();
-                                    proc.last_depth = cur_depth;
-                                }
-                                assert_eq!(proc.best_moves.len(), proc.real_multipv as usize);
-                                proc.best_moves.clear();
-                            }
-                        }
-                    }
+        match search_once(&mut proc, &mut reader, &go_mode, &mut cancel).await {
+            Ok(best) => analysis.push(MoveAnalysis {
+                best,
+                ..Default::default()
+            }),
+            Err(Error::AnalysisCancelled) => {
+                if let Err(e) = proc.kill().await {
+                    warn!("Failed to stop the analysis engine: {:?}", e);
                 }
-                UciMessage::BestMove { .. } => {
-                    break;
-                }
-                _ => {}
+                guard.cancelled()?;
+                return Err(Error::AnalysisCancelled);
             }
+            Err(e) => return Err(e),
         }
-        analysis.push(current_analysis);
     }
 
     if options.reversed {
@@ -628,8 +738,7 @@ pub async fn analyze_game(
             }
         }
     }
-    update_progress(&state.progress_state, &app, id.clone(), 100.0, true)?;
-    state.analysis_cancel_flags.remove(&id);
+    guard.finished()?;
     Ok(analysis)
 }
 
@@ -769,6 +878,105 @@ mod tests {
     fn eval_opera_game2() {
         let position = pos("4kb1r/p2rqppp/5n2/1B2p1B1/4P3/1Q6/PPP2PPP/2KR4 b k - 1 14");
         assert_eq!(naive_eval(&position), 0);
+    }
+
+    const START: &str = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1";
+
+    fn parse(line: &str) -> ParsedLine {
+        let UciMessage::Info(attrs) = parse_one(line) else {
+            panic!("not an info line: {line}");
+        };
+        parse_uci_attrs(attrs, &START.parse().unwrap(), &[]).unwrap()
+    }
+
+    fn collect(multipv: u16, lines: &[&str]) -> Vec<BestMoves> {
+        let mut collector = MultiPvCollector::new(multipv);
+        for line in lines {
+            collector.push(parse(line));
+        }
+        collector.into_best()
+    }
+
+    fn depths(best: &[BestMoves]) -> Vec<(u16, u32)> {
+        best.iter().map(|b| (b.multipv, b.depth)).collect()
+    }
+
+    #[test]
+    fn parse_reads_bound_flags() {
+        let line = "info depth 12 multipv 1 score cp 31 pv e2e4 e7e5";
+        assert_eq!(parse(line).bound, Bound::Exact);
+        let line = "info depth 12 multipv 1 score cp 31 lowerbound pv e2e4";
+        assert_eq!(parse(line).bound, Bound::Lower);
+        let line = "info depth 12 multipv 1 score cp 31 upperbound pv e2e4";
+        assert_eq!(parse(line).bound, Bound::Upper);
+    }
+
+    #[test]
+    fn collector_keeps_last_complete_set() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 10 multipv 2 score cp 25 pv d2d4 d7d5",
+                "info depth 11 multipv 1 score cp 28 pv e2e4 c7c5",
+                "info depth 11 multipv 2 score cp 20 pv g1f3 d7d5",
+            ],
+        );
+        assert_eq!(depths(&best), vec![(1, 11), (2, 11)]);
+        assert_eq!(best[0].san_moves, vec!["e4", "c5"]);
+    }
+
+    #[test]
+    fn collector_drops_bound_only_sets() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 lowerbound pv e2e4",
+                "info depth 10 multipv 2 score cp 25 upperbound pv d2d4",
+            ],
+        );
+        assert!(best.is_empty());
+    }
+
+    #[test]
+    fn collector_keeps_exact_set_when_search_stops_on_a_bound() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 10 multipv 2 score cp 25 pv d2d4 d7d5",
+                "info depth 11 multipv 1 score cp 90 lowerbound pv e2e4",
+                "info depth 11 multipv 2 score cp 20 pv g1f3 d7d5",
+            ],
+        );
+        assert_eq!(depths(&best), vec![(1, 10), (2, 10)]);
+    }
+
+    #[test]
+    fn collector_survives_irregular_multipv_sequence() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 10 multipv 2 score cp 25 pv d2d4 d7d5",
+                "info depth 11 multipv 2 score cp 20 pv g1f3 d7d5",
+                "info depth 11 multipv 1 score cp 28 pv e2e4 c7c5",
+                "info depth 12 multipv 1 score cp 27 pv e2e4 e7e5",
+            ],
+        );
+        assert_eq!(depths(&best), vec![(1, 10), (2, 10)]);
+    }
+
+    #[test]
+    fn collector_rejects_mixed_depth_sets() {
+        let best = collect(
+            2,
+            &[
+                "info depth 10 multipv 1 score cp 30 pv e2e4 e7e5",
+                "info depth 9 multipv 2 score cp 25 pv d2d4 d7d5",
+            ],
+        );
+        assert!(best.is_empty());
     }
 }
 
