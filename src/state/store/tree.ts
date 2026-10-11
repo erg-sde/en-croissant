@@ -10,6 +10,7 @@ import { createDebouncedSessionStorage } from "./debouncedStorage";
 import { ANNOTATION_INFO, type Annotation } from "@/utils/annotation";
 import { getPGN } from "@/utils/chess";
 import { parseSanOrUci, positionFromFen } from "@/utils/chessops";
+import type { MoveCommentaryResult } from "@/utils/commentary/report";
 import { type MainlineSnapshot, samePosition } from "@/utils/commentary/snapshot";
 import { isPrefix } from "@/utils/misc";
 import { playSound } from "@/utils/sound";
@@ -76,6 +77,14 @@ export interface TreeStoreState extends TreeState {
         glyphs: (Annotation | null)[],
         options?: AddAnalysisOptions,
     ) => void;
+
+    applyReport: (
+        analysis: AnalysisEntry[],
+        glyphs: (Annotation | null)[],
+        options: AddAnalysisOptions,
+        commentary: (MoveCommentaryResult | null)[],
+    ) => void;
+    appendComment: (path: number[], text: string) => void;
 
     setReportInProgress: (value: boolean) => void;
     beginReport: (snapshot: MainlineSnapshot) => void;
@@ -509,6 +518,26 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                 }),
             ),
 
+        applyReport: (analysis, glyphs, options, commentary) =>
+            set(
+                produce((state) => {
+                    if (options.runId !== undefined && state.report.runId !== options.runId) {
+                        return;
+                    }
+                    state.dirty = true;
+                    addAnalysis(state, analysis, glyphs, options, commentary);
+                }),
+            ),
+
+        appendComment: (path, text) =>
+            set(
+                produce((state) => {
+                    const node = getNodeAtPath(state.root, path);
+                    state.dirty = true;
+                    node.comment = node.comment ? `${node.comment}\n\n${text}` : text;
+                }),
+            ),
+
         setReportInProgress: (value: boolean) => {
             set(
                 produce((state: Draft<TreeStoreState>) => {
@@ -733,6 +762,7 @@ function addAnalysis(
     analysis: AnalysisEntry[],
     glyphs: (Annotation | null)[],
     options?: AddAnalysisOptions,
+    commentary?: (MoveCommentaryResult | null)[],
 ) {
     let cur = state.root;
     let i = 0;
@@ -823,8 +853,28 @@ function addAnalysis(
                 ANNOTATION_INFO[a].nag > ANNOTATION_INFO[b].nag ? 1 : -1,
             );
         }
+        if (commentary) {
+            writeCommentary(cur, commentary[i] ?? null);
+        }
         parent = cur;
         cur = cur.children[0];
         i++;
+    }
+}
+
+// Generated output of a report run: the extended glyphs join the annotations, and the commentary
+// replaces any earlier record (a move with no commentary this run loses a stale one). The user's
+// comment and shapes are never touched.
+function writeCommentary(node: TreeNode, result: MoveCommentaryResult | null) {
+    if (result && result.extended.length > 0) {
+        node.annotations = [...new Set([...node.annotations, ...result.extended])];
+        node.annotations.sort((a, b) => (ANNOTATION_INFO[a].nag > ANNOTATION_INFO[b].nag ? 1 : -1));
+    }
+    if (result?.commentary) {
+        if (node.commentary?.fingerprint !== result.commentary.fingerprint) {
+            node.commentary = result.commentary;
+        }
+    } else {
+        delete node.commentary;
     }
 }

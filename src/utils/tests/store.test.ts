@@ -1,9 +1,11 @@
 import { parseUci } from "chessops";
-import { beforeEach, expect, test } from "vitest";
+import { beforeEach, describe, expect, test } from "vitest";
 import { type AnalysisEntry, createTreeStore } from "@/state/store/tree";
 import { deriveGlyphs } from "@/utils/commentary/classify";
+import { buildMoveCommentary } from "@/utils/commentary/report";
 import { takeMainlineSnapshot } from "@/utils/commentary/snapshot";
 import { defaultTree, type TreeState, treeIteratorMainLine } from "@/utils/treeReducer";
+import { facts as commentaryFacts, run as commentaryRun } from "./commentary/helpers";
 
 const store = createTreeStore();
 
@@ -615,4 +617,80 @@ test("addAnalysis writes only the current report run", () => {
     store.getState().endReport(run.runId);
     expect(mainlineScores()).toStrictEqual([10, 20]);
     expect(store.getState().report.inProgress).toBe(false);
+});
+
+describe("applyReport", () => {
+    // Commentary records come from the frontend fixtures; only their shape matters here.
+    const record = (fingerprint: string) => ({
+        extended: ["□" as const],
+        commentary: {
+            ...buildMoveCommentary(commentaryFacts("onlyMove"), "!", commentaryRun()).commentary!,
+            fingerprint,
+        },
+    });
+
+    function analysed() {
+        store.getState().makeMoves({ payload: ["e4", "e5"] });
+        const fens = mainlineFens();
+        return [
+            entry(fens[0], "e4", "e2e4", 10),
+            entry(fens[1], "e5", "e7e5", 20),
+            entry(fens[2], "Nf3", "g1f3", 30),
+        ];
+    }
+
+    test("writes commentary and extended glyphs, never the user's comment", () => {
+        const analysis = analysed();
+        store.getState().goToMove([0]);
+        store.getState().setComment("my note");
+        store
+            .getState()
+            .applyReport(analysis, [null, "!", null], { showVariations: false }, [
+                null,
+                record("a"),
+                null,
+            ]);
+
+        const e4 = store.getState().root.children[0];
+        expect(e4.comment).toBe("my note");
+        expect(e4.commentary?.fingerprint).toBe("a");
+        expect(e4.annotations).toStrictEqual(["!", "□"]);
+        expect(store.getState().root.children[0].children[0].commentary).toBeUndefined();
+    });
+
+    test("setComment leaves the commentary alone", () => {
+        const analysis = analysed();
+        store
+            .getState()
+            .applyReport(analysis, [null, null, null], { showVariations: false }, [
+                null,
+                record("a"),
+                null,
+            ]);
+        store.getState().goToMove([0]);
+        store.getState().setComment("edited");
+        expect(store.getState().root.children[0].commentary?.fingerprint).toBe("a");
+    });
+
+    test("a re-run replaces stale commentary and removes it where there is none", () => {
+        const analysis = analysed();
+        const apply = (results: (ReturnType<typeof record> | null)[]) =>
+            store
+                .getState()
+                .applyReport(analysis, [null, null, null], { showVariations: false }, results);
+        apply([null, record("a"), record("b")]);
+        const first = store.getState().root.children[0].commentary;
+        apply([null, record("a"), null]);
+        expect(store.getState().root.children[0].commentary).toBe(first);
+        expect(store.getState().root.children[0].children[0].commentary).toBeUndefined();
+        apply([null, record("c"), null]);
+        expect(store.getState().root.children[0].commentary?.fingerprint).toBe("c");
+    });
+
+    test("appendComment adds a paragraph to the user's comment", () => {
+        store.getState().makeMoves({ payload: ["e4"] });
+        store.getState().appendComment([0], "first");
+        store.getState().appendComment([0], "second");
+        expect(store.getState().root.children[0].comment).toBe("first\n\nsecond");
+    });
 });
