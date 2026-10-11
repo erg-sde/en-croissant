@@ -568,7 +568,9 @@ export function getGameStats(root: TreeNode) {
         };
     }
 
-    let prevScore: Score = root.score ?? INITIAL_SCORE;
+    // Losses are measured between consecutive scored plies only: an unscored ply breaks the chain,
+    // so the next scored ply is not charged with two plies of evaluation change.
+    let prevScore: Score | null = root.score ?? INITIAL_SCORE;
     const cplosses: ColorMap<number[]> = {
         white: [],
         black: [],
@@ -590,11 +592,11 @@ export function getGameStats(root: TreeNode) {
             }
         }
         const color = node.halfMoves % 2 === 1 ? "white" : "black";
-        if (node.score) {
+        if (node.score && prevScore) {
             cplosses[color].push(getCPLoss(prevScore.value, node.score.value, color));
             accuracies[color].push(getAccuracy(prevScore.value, node.score.value, color));
-            prevScore = node.score;
         }
+        prevScore = node.score;
     }
     const whiteCPL = mean(cplosses.white);
     const blackCPL = mean(cplosses.black);
