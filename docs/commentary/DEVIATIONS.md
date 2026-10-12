@@ -325,6 +325,20 @@ upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribu
   from slice 12).
 - **Hotkey** `EXPLAIN_POSITION` ("e") is active while the analysis panel is shown.
 
+### Slice 11: export commentary to PGN
+
+- `getPGN` takes a `commentary` function (node → `PgnSafeText | null`) rather than a per-node value,
+  so the recursion passes one option; `getMoveText` takes the node's `PgnSafeText`. `null` (the
+  default) exports nothing generated; `copyVariationPgn` never passes it.
+- The export flag is read with `readCommentarySettings(localStorage)` in `copyPgn` (store) and
+  `saveToFile` (tabs.ts): importing `commentarySettingsAtom` there would make `atoms.ts` and
+  `tabs.ts` import each other. The storage key is shared through `COMMENTARY_SETTINGS_KEY`.
+- The provenance sentence uses the app version and source recorded with the narrative ("Commentary
+  by En Croissant 0.15.1, deterministic[, model]."), in English: it is metadata, like the tag.
+  Takeaways are not exported, only the narrative and each move's sentences.
+- `[Annotator "En Croissant"]` is added through `headers.other` only when something generated is
+  exported (a narrative or any node with commentary).
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
