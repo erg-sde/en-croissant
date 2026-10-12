@@ -12,9 +12,10 @@ use super::{
         CommentaryKind, FactKind, FactVocabulary, MoveRef, NumberRef, Perspective, PieceRef,
         PositionRef, Side,
     },
-    prompt::{narration_schema, user_message, ChunkContent, SYSTEM_PROMPT},
+    prompt::{user_message, ChunkContent, SYSTEM_PROMPT},
     provider::{NarrationFailure, NarratorConfig, Provider, ProviderRequest, Served},
     secrets::{FileStore, SecretStore},
+    wire::{narration_schema, NarrationResponse},
 };
 use crate::{
     error::Error,
@@ -190,15 +191,6 @@ pub enum NarrationRun {
     },
 }
 
-/// What the model returns for one request.
-#[derive(Deserialize)]
-struct NarrationResponse {
-    #[serde(default)]
-    items: Vec<NarratedMove>,
-    #[serde(default)]
-    narrative: Option<NarratedGame>,
-}
-
 /// The requests a run sends: the moves in groups of `CHUNK_ITEMS`, then the game narrative.
 pub fn plan_chunks(request: &NarrationRequest) -> Vec<ChunkContent<'_>> {
     let mut chunks: Vec<ChunkContent> = request
@@ -221,10 +213,10 @@ fn read_answer(
         serde_json::from_str(json).map_err(|e| NarrationFailure::MalformedResponse {
             message: super::provider::Redacted::new(&e.to_string(), None),
         })?;
+    let (moves, narrative) = response.into_narrated();
     match content {
         ChunkContent::Moves(items) => {
-            let moves = response
-                .items
+            let moves = moves
                 .into_iter()
                 .filter_map(|mut narrated| {
                     let item = items.iter().find(|i| i.index == narrated.index)?;
@@ -235,7 +227,7 @@ fn read_answer(
                 .collect();
             Ok((moves, None))
         }
-        ChunkContent::Narrative(_) => Ok((vec![], response.narrative)),
+        ChunkContent::Narrative(_) => Ok((vec![], narrative)),
     }
 }
 
@@ -505,17 +497,14 @@ mod tests {
         (run, chunks)
     }
 
-    const MOVE_ANSWER: &str = r#"{"items":[{"index":1,"sentences":[{"template":"{{m0}} opens the game.","slots":{"m0":{"san":"e4","side":"white","at":{"t":"before"}},"m1":null,"p0":null,"p1":null,"s0":null,"s1":null,"n0":null,"n1":null,"side":null,"pieces":[]},"claims":[],"factIds":["line:0"]}]},{"index":99,"sentences":[]}],"narrative":null}"#;
+    const MOVE_ANSWER: &str = r#"{"items":[{"index":1,"sentences":[{"template":"{{m0}} opens the game.","slots":{"moves":[{"san":"e4","side":"white","at":{"t":"before","id":0,"ply":0}}],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["line:0"]}]},{"index":99,"sentences":[]}],"narrative":{"sentences":[],"takeaways":[]}}"#;
+    const NARRATIVE_ANSWER: &str = r#"{"items":[],"narrative":{"sentences":[{"template":"{{m0}} ended it.","slots":{"moves":[{"san":"e4","side":"white","at":{"t":"before","id":0,"ply":0}}],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["game:terminal:0"]}],"takeaways":[]}}"#;
 
     #[tokio::test]
     async fn anthropic_chunks_are_emitted_with_positions_from_the_request() {
         let (base, mut seen) = mock_server(vec![
             Some((200, "", anthropic_ok(MOVE_ANSWER))),
-            Some((
-                200,
-                "",
-                anthropic_ok(r#"{"items":[],"narrative":{"sentences":[],"takeaways":[]}}"#),
-            )),
+            Some((200, "", anthropic_ok(NARRATIVE_ANSWER))),
         ])
         .await;
         let config = config(ProviderKind::Anthropic, Some(&base));

@@ -5,3 +5,4 @@ pub mod narrate;
 pub mod prompt;
 pub mod provider;
 pub mod secrets;
+pub mod wire;
