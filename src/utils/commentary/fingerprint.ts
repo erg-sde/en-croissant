@@ -1,5 +1,6 @@
 import type { MoveFacts } from "@/bindings";
 import type { Annotation } from "@/utils/annotation";
+import type { GameFacts } from "./gameFacts";
 import type { CommentaryDetail } from "./settings";
 import { COMMENTARY_SCHEMA_VERSION } from "./types";
 
@@ -37,4 +38,13 @@ export function commentaryFingerprint(
             options,
         ]),
     );
+}
+
+/** The staleness key of a game narrative. */
+export function narrativeFingerprint(
+    facts: GameFacts,
+    detail: CommentaryDetail,
+    lang: string,
+): string {
+    return fnv1a(JSON.stringify([COMMENTARY_SCHEMA_VERSION, facts, detail, lang]));
 }

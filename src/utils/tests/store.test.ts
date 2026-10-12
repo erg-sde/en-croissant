@@ -623,6 +623,7 @@ describe("applyReport", () => {
     // Commentary records come from the frontend fixtures; only their shape matters here.
     const record = (fingerprint: string) => ({
         extended: ["□" as const],
+        selection: null,
         commentary: {
             ...buildMoveCommentary(commentaryFacts("onlyMove"), "!", commentaryRun()).commentary!,
             fingerprint,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { GameFacts } from "./gameFacts";
 import type { CommentaryKind, FactKind, FactVocabulary, GoMode, Perspective } from "@/bindings";
 import type { Annotation } from "@/utils/annotation";
 
@@ -175,4 +176,27 @@ export const moveCommentarySchema = z.object({
             factsSchemaVersion: z.number(),
         })
         .passthrough(),
+});
+
+/** The game narrative, stored on the report. */
+export interface GameNarrative {
+    schemaVersion: typeof COMMENTARY_SCHEMA_VERSION;
+    facts: GameFacts;
+    /** Patterns over several moves, each citing the moves it is about. */
+    takeaways: { narration: ValidatedNarration; indices: number[] }[];
+    narration: ValidatedNarration;
+    fingerprint: string;
+    provenance: Provenance;
+}
+
+const narrationSchema = moveCommentarySchema.shape.narration;
+
+/** The shape of a stored `GameNarrative` (see `restoreNarrative` in validate.ts). */
+export const gameNarrativeSchema = z.object({
+    schemaVersion: z.literal(COMMENTARY_SCHEMA_VERSION),
+    facts: z.object({ result: z.string(), swings: z.array(z.unknown()) }).passthrough(),
+    takeaways: z.array(z.object({ narration: narrationSchema, indices: z.array(z.number()) })),
+    narration: narrationSchema,
+    fingerprint: z.string(),
+    provenance: moveCommentarySchema.shape.provenance,
 });

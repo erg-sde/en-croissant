@@ -1,4 +1,5 @@
 import type { LineFacts, Motif, MoveFacts, MoveRef, PieceRef } from "@/bindings";
+import { enumerateGameFacts, type GameFacts, type MovesByIndex } from "./gameFacts";
 import {
     type EnumeratedFact,
     enumerateFacts,
@@ -283,4 +284,199 @@ export function arrowsFor(selection: FactSelection, facts: MoveFacts): Commentar
         }
     }
     return arrows;
+}
+
+/** A takeaway: sentences about a pattern over several moves, with the moves it cites. */
+export interface TakeawayDraft {
+    indices: number[];
+    drafts: SentenceDraft[];
+}
+
+const PHASE_NAMES = ["opening", "middlegame", "endgame"] as const;
+const MISTAKE_KINDS: string[] = ["mistake", "evalDrift", "miss"];
+
+/** A move of the game shown with its number, e.g. "12...Nf6". */
+function gameMoveToken(moves: MovesByIndex, index: number, rootHalfMoves: number): Token | null {
+    const m = moves[index];
+    if (!m) return null;
+    return {
+        kind: "line",
+        moves: [{ san: m.played.san, side: m.mover, at: { t: "before" } }],
+        startHalfMoves: rootHalfMoves + index - 1,
+    };
+}
+
+function toDraft(segmented: Segmented, factIds: string[]): SentenceDraft {
+    return {
+        template: segmented.template,
+        sentence: { text: segmented.text, factIds, refs: segmented.refs },
+    };
+}
+
+type Seg = (key: string, values: Record<string, Token | null>) => Segmented;
+type MoveAt = (index: number) => Token | null;
+
+/**
+ * The deterministic game narrative: the opening, the move that left known games, the phases, the
+ * swings, the decisive move, accuracy and the end; then the takeaways, each an aggregate over the
+ * moves' selected facts with at least two supporting moves (or the decisive move's phase). Fewer
+ * takeaways are written rather than padded.
+ */
+export function narrateGame(
+    facts: GameFacts,
+    moves: MovesByIndex,
+    selections: (FactSelection | null)[],
+    ctx: NarrationContext,
+): { drafts: SentenceDraft[]; takeaways: TakeawayDraft[] } {
+    const enumerated = new Map(
+        enumerateGameFacts(facts, moves, ctx.rootHalfMoves).map((f) => [f.id, f]),
+    );
+    const number = (id: string, unit: string, nth = 0): Token | null => {
+        const ref = enumerated.get(id)?.vocabulary.numbers.filter((n) => n.unit === unit)[nth];
+        return ref ? { kind: "number", ref } : null;
+    };
+    const seg: Seg = (key, values) => segmentize([key], compact(values), ctx.t, ctx.lang);
+    const moveAt: MoveAt = (index) => gameMoveToken(moves, index, ctx.rootHalfMoves);
+    const drafts: SentenceDraft[] = [];
+
+    if (enumerated.has("game:opening:0")) {
+        const values = {
+            name: { kind: "name", text: facts.opening.name ?? "" } as Token,
+            eco: { kind: "name", text: facts.opening.eco ?? "" } as Token,
+            move: number("game:opening:0", "move"),
+        };
+        drafts.push(toDraft(seg("Commentary.Game.Opening", values), ["game:opening:0"]));
+    }
+    if (facts.noveltyIndex !== null) {
+        const values = { move: moveAt(facts.noveltyIndex) };
+        drafts.push(toDraft(seg("Commentary.Game.Novelty", values), ["game:novelty:0"]));
+    }
+    if (enumerated.has("game:phase:1")) {
+        const values = {
+            middlegame: number("game:phase:0", "move"),
+            endgame: number("game:phase:1", "move"),
+        };
+        drafts.push(
+            toDraft(seg("Commentary.Game.Phases", values), ["game:phase:0", "game:phase:1"]),
+        );
+    } else if (enumerated.has("game:phase:0")) {
+        const values = { middlegame: number("game:phase:0", "move") };
+        drafts.push(toDraft(seg("Commentary.Game.Middlegame", values), ["game:phase:0"]));
+    }
+    facts.swings.forEach((swing, k) => {
+        const id = `game:swing:${k}`;
+        if (swing.winDelta > 0 && swing.index !== facts.decisive) {
+            const values = { move: moveAt(swing.index), delta: number(id, "winPercent") };
+            drafts.push(toDraft(seg("Commentary.Game.Swing", values), [id]));
+        }
+    });
+    if (facts.decisive !== null) {
+        const values = { move: moveAt(facts.decisive) };
+        drafts.push(toDraft(seg("Commentary.Game.Decisive", values), ["game:decisive:0"]));
+    }
+    if (facts.accuracy.white !== null && facts.accuracy.black !== null) {
+        const values = {
+            white: number("game:accuracy:0", "winPercent", 0),
+            black: number("game:accuracy:0", "winPercent", 1),
+            whiteSide: { kind: "side", side: "white" } as Token,
+            blackSide: { kind: "side", side: "black" } as Token,
+        };
+        drafts.push(toDraft(seg("Commentary.Game.Accuracy", values), ["game:accuracy:0"]));
+    }
+    if (facts.terminal?.mate) {
+        const values = { move: moveAt(facts.terminal.index) };
+        drafts.push(toDraft(seg("Commentary.Game.Mate", values), ["game:terminal:0"]));
+    }
+
+    return { drafts, takeaways: gameTakeaways(facts, moves, selections, ctx, seg, moveAt) };
+}
+
+function gameTakeaways(
+    facts: GameFacts,
+    moves: MovesByIndex,
+    selections: (FactSelection | null)[],
+    ctx: NarrationContext,
+    seg: Seg,
+    moveAt: MoveAt,
+): TakeawayDraft[] {
+    const out: TakeawayDraft[] = [];
+    const list = (indices: number[]): Token => ({
+        kind: "list",
+        items: indices.map(moveAt).filter((t): t is Token => t !== null),
+    });
+    const cite = (index: number, id: string) => `${index}/${id}`;
+
+    // (a) The same motif on the reply to two or more selected moves.
+    const byMotif = new Map<string, { index: number; id: string }[]>();
+    selections.forEach((selection, index) => {
+        const m = moves[index];
+        if (!selection || !m) return;
+        const enumerated = new Map(enumerateFacts(m, ctx).map((f) => [f.id, f]));
+        for (const selected of selection.facts) {
+            const payload = enumerated.get(selected.id)?.payload;
+            if (payload?.kind !== "motif") continue;
+            const entries = byMotif.get(payload.motif.kind) ?? [];
+            if (!entries.some((e) => e.index === index)) {
+                entries.push({ index, id: selected.id });
+            }
+            byMotif.set(payload.motif.kind, entries);
+        }
+    });
+    for (const [motif, entries] of byMotif) {
+        if (entries.length < 2) continue;
+        const indices = entries.map((e) => e.index);
+        const values = {
+            motif: { kind: "name", text: ctx.t(`Commentary.MotifName.${motif}`) } as Token,
+            list: list(indices),
+        };
+        const ids = entries.map((e) => cite(e.index, e.id));
+        out.push({ indices, drafts: [toDraft(seg("Commentary.Takeaway.Motif", values), ids)] });
+    }
+
+    // (b) Two or more missed punishments.
+    const misses = selections.flatMap((s, index) => (s?.kind === "miss" ? [index] : []));
+    if (misses.length >= 2) {
+        const ids = misses.map((index) => {
+            const id = selections[index]?.facts.find((f) => f.kind === "criticality")?.id;
+            return cite(index, id ?? "criticality:0");
+        });
+        const values = { list: list(misses) };
+        out.push({
+            indices: misses,
+            drafts: [toDraft(seg("Commentary.Takeaway.Miss", values), ids)],
+        });
+    }
+
+    // (c) The phase the game was decided in.
+    if (facts.decisive !== null) {
+        const { middlegamePly, endgamePly } = facts.phases;
+        const phase =
+            endgamePly !== null && facts.decisive >= endgamePly
+                ? PHASE_NAMES[2]
+                : middlegamePly !== null && facts.decisive >= middlegamePly
+                  ? PHASE_NAMES[1]
+                  : PHASE_NAMES[0];
+        const values = {
+            phase: { kind: "name", text: ctx.t(`Commentary.Phase.${phase}`) } as Token,
+            move: moveAt(facts.decisive),
+        };
+        out.push({
+            indices: [facts.decisive],
+            drafts: [toDraft(seg("Commentary.Takeaway.Phase", values), ["game:decisive:0"])],
+        });
+    }
+
+    // (d) Two or more mistakes made in time trouble.
+    const hurried = selections.flatMap((s, index) =>
+        s && MISTAKE_KINDS.includes(s.kind) && moves[index]?.time?.underPressure ? [index] : [],
+    );
+    if (hurried.length >= 2) {
+        const ids = hurried.map((index) => cite(index, "time:0"));
+        const values = { list: list(hurried) };
+        out.push({
+            indices: hurried,
+            drafts: [toDraft(seg("Commentary.Takeaway.Time", values), ids)],
+        });
+    }
+    return out;
 }
