@@ -11,7 +11,7 @@ import { ANNOTATION_INFO, type Annotation } from "@/utils/annotation";
 import { getPGN } from "@/utils/chess";
 import { parseSanOrUci, positionFromFen } from "@/utils/chessops";
 import type { MoveCommentaryResult } from "@/utils/commentary/report";
-import type { GameNarrative } from "@/utils/commentary/types";
+import type { GameNarrative, MoveCommentary } from "@/utils/commentary/types";
 import { type MainlineSnapshot, samePosition } from "@/utils/commentary/snapshot";
 import { isPrefix } from "@/utils/misc";
 import { playSound } from "@/utils/sound";
@@ -20,6 +20,7 @@ import {
     defaultTree,
     type GameHeaders,
     getNodeAtPath,
+    type NarrationState,
     type TreeNode,
     type TreeState,
     treeIteratorMainLine,
@@ -87,6 +88,17 @@ export interface TreeStoreState extends TreeState {
         narrative?: GameNarrative | null,
     ) => void;
     appendComment: (path: number[], text: string) => void;
+    /**
+     * Replaces the commentary of mainline moves with narrated records. A record is written only
+     * while `runId` is the report's run and the node at its index is still the move it was written
+     * for (same SAN, played from the same position).
+     */
+    applyCommentary: (
+        runId: string,
+        writes: CommentaryWrite[],
+        narrative?: GameNarrative | null,
+    ) => void;
+    setNarration: (runId: string, narration: NarrationState) => void;
 
     setReportInProgress: (value: boolean) => void;
     beginReport: (snapshot: MainlineSnapshot) => void;
@@ -108,6 +120,14 @@ export interface AnalysisEntry {
     novelty: boolean;
     is_sacrifice: boolean;
     fen: string;
+}
+
+export interface CommentaryWrite {
+    /** Mainline position index of the node after the move. */
+    index: number;
+    fenBefore: string;
+    san: string;
+    commentary: MoveCommentary;
 }
 
 export interface AddAnalysisOptions {
@@ -536,6 +556,45 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                 }),
             ),
 
+        applyCommentary: (runId, writes, narrative) =>
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (state.report.runId !== runId) {
+                        return;
+                    }
+                    for (const write of writes) {
+                        let parent: TreeNode | undefined;
+                        let node: TreeNode | undefined = state.root;
+                        for (let i = 0; i < write.index && node; i++) {
+                            parent = node;
+                            node = node.children[0];
+                        }
+                        if (
+                            node &&
+                            parent &&
+                            node.san === write.san &&
+                            samePosition(parent.fen, write.fenBefore)
+                        ) {
+                            node.commentary = write.commentary;
+                            state.dirty = true;
+                        }
+                    }
+                    if (narrative) {
+                        state.report.narrative = narrative;
+                        state.dirty = true;
+                    }
+                }),
+            ),
+
+        setNarration: (runId, narration) =>
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (state.report.runId === runId) {
+                        state.report.narration = narration;
+                    }
+                }),
+            ),
+
         appendComment: (path, text) =>
             set(
                 produce((state) => {
@@ -558,6 +617,7 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                 produce((state: Draft<TreeStoreState>) => {
                     state.report.inProgress = true;
                     state.report.runId = snapshot.runId;
+                    delete state.report.narration;
                 }),
             );
         },

@@ -695,3 +695,59 @@ describe("applyReport", () => {
         expect(store.getState().root.children[0].comment).toBe("first\n\nsecond");
     });
 });
+
+describe("applyCommentary", () => {
+    const narrated = buildMoveCommentary(
+        commentaryFacts("onlyMove"),
+        "!",
+        commentaryRun(),
+    ).commentary!;
+
+    function started() {
+        store.getState().makeMoves({ payload: ["e4", "e5"] });
+        const run = snapshot();
+        store.getState().beginReport(run);
+        const fens = mainlineFens();
+        return { runId: run.runId, fens };
+    }
+
+    test("writes onto the move it was narrated for, never the comment", () => {
+        const { runId, fens } = started();
+        store.getState().goToMove([0, 0]);
+        store.getState().setComment("mine");
+        store
+            .getState()
+            .applyCommentary(runId, [
+                { index: 2, fenBefore: fens[1], san: "e5", commentary: narrated },
+            ]);
+        const e5 = store.getState().root.children[0].children[0];
+        expect(e5.commentary).toStrictEqual(narrated);
+        expect(e5.comment).toBe("mine");
+        expect(store.getState().root.children[0].commentary).toBeUndefined();
+    });
+
+    test("drops writes for another run or a move that changed", () => {
+        const { runId, fens } = started();
+        store
+            .getState()
+            .applyCommentary("other-run", [
+                { index: 1, fenBefore: fens[0], san: "e4", commentary: narrated },
+            ]);
+        store.getState().applyCommentary(runId, [
+            { index: 1, fenBefore: fens[0], san: "d4", commentary: narrated },
+            { index: 2, fenBefore: fens[0], san: "e5", commentary: narrated },
+        ]);
+        expect(store.getState().root.children[0].commentary).toBeUndefined();
+        expect(store.getState().root.children[0].children[0].commentary).toBeUndefined();
+    });
+
+    test("a new report clears the previous narration state", () => {
+        const { runId } = started();
+        store.getState().setNarration(runId, { status: "failed" });
+        expect(store.getState().report.narration?.status).toBe("failed");
+        store.getState().setNarration("other-run", { status: "completed" });
+        expect(store.getState().report.narration?.status).toBe("failed");
+        store.getState().beginReport(snapshot());
+        expect(store.getState().report.narration).toBeUndefined();
+    });
+});
