@@ -31,6 +31,27 @@ test("the card renders the kind, the badges, the text and the actions", () => {
   expect(text).toContain("Commentary.Card.AddToNotes");
 });
 
+test("a model-written record shows the model that answered", () => {
+  const commentary = buildMoveCommentary(facts("mateAllowed"), "??", run()).commentary!;
+  const container = document.createElement("div");
+  container.innerHTML = renderToStaticMarkup(
+    <MantineProvider>
+      <CommentaryCard
+        commentary={{
+          ...commentary,
+          provenance: { ...commentary.provenance, source: "llm", model: "claude-opus-5-5" },
+        }}
+        facts={null}
+        rootHalfMoves={0}
+        onAddToNotes={() => {}}
+      />
+    </MantineProvider>,
+  );
+  const text = container.textContent ?? "";
+  expect(text).toContain("claude-opus-5-5");
+  expect(text).not.toContain("Commentary.Card.Offline");
+});
+
 test("narration status: running can be cancelled, a failure explains itself, a cancel is silent", () => {
   const render = (narration: Parameters<typeof NarrationStatus>[0]["narration"]) => {
     const container = document.createElement("div");
