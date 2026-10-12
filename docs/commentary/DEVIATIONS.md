@@ -346,6 +346,18 @@ upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribu
 - `[Annotator "En Croissant"]` is added through `headers.other` only when something generated is
   exported (a narrative or any node with commentary).
 
+### Slice 13: only the bindings-drift test
+
+- `main.rs` builds the specta builder in `specta_builder()` and the exporter in
+  `bindings_exporter()`; `bindings_are_up_to_date` exports to a temporary file and compares it with
+  the committed `src/bindings/generated.ts` (line endings normalized).
+- **Deferred: the cargo CI job.** On the untouched baseline `cargo test` has 8 failing tests,
+  `cargo clippy -- -D warnings` 4 lints and `cargo fmt --check` 2 files, so a job added now would be
+  red from its first run. It should follow the baseline fix (the open question in `STATUS.md`).
+- **Deferred: `scripts/commentary-eval/`.** The claim-precision harness needs the dev-only export
+  of `{ facts, commentary }` per game and a corpus of at least 50 real games, plus LLM runs for the
+  model-written half; none of these exist in this session.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
