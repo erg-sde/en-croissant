@@ -1,4 +1,4 @@
-import type { LineFacts, Motif, MoveFacts, MoveRef, PieceRef } from "@/bindings";
+import type { Claim, LineFacts, Motif, MoveFacts, MoveRef, PieceRef } from "@/bindings";
 import { enumerateGameFacts, type GameFacts, type MovesByIndex } from "./gameFacts";
 import {
     type EnumeratedFact,
@@ -13,6 +13,9 @@ import type { CommentaryArrow, CommentarySentence, FactSelection } from "./types
 export interface SentenceDraft {
     template: string;
     sentence: CommentarySentence;
+    /** Model-written sentences only: the relations they declare and template problems. */
+    claims?: Claim[];
+    problems?: string[];
 }
 
 export interface NarrationContext extends SalienceContext {

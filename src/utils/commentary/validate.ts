@@ -16,8 +16,14 @@ import {
     type GameFacts,
     type MovesByIndex,
 } from "./gameFacts";
+import { claimFailures } from "./claims";
 import type { SentenceDraft } from "./narrate";
-import { enumerateFacts, linePositions, type SalienceContext } from "./salience";
+import {
+    type EnumeratedFact,
+    enumerateFacts,
+    linePositions,
+    type SalienceContext,
+} from "./salience";
 import {
     type CommentarySentence,
     type FactSelection,
@@ -91,6 +97,25 @@ class Boards {
     }
 }
 
+/**
+ * Rules 4 (placeholders) and 5 to 7 for model-written sentences, which carry `claims`.
+ * Deterministic drafts are correct by construction and skip them.
+ */
+function llmRules(
+    draft: SentenceDraft,
+    literal: string,
+    cited: EnumeratedFact[],
+    facts: MoveFacts | null,
+    lang: string,
+    fail: (rule: ValidationFailure["rule"], detail: string) => void,
+) {
+    if (draft.claims === undefined) return;
+    for (const problem of draft.problems ?? []) fail("literalInTemplate", problem);
+    for (const failure of claimFailures(draft.claims, literal, cited, facts, lang)) {
+        fail(failure.rule, failure.detail);
+    }
+}
+
 function wordCount(text: string, lang: string): number {
     const segmenter = new Intl.Segmenter(lang, { granularity: "word" });
     return [...segmenter.segment(text)].filter((s) => s.isWordLike).length;
@@ -100,8 +125,9 @@ function wordCount(text: string, lang: string): number {
 function check(
     draft: SentenceDraft,
     index: number,
-    allowed: Map<string, FactVocabulary>,
+    allowed: Map<string, EnumeratedFact>,
     played: MoveRef,
+    facts: MoveFacts,
     boards: Boards,
     selection: FactSelection,
     ctx: ValidationContext,
@@ -119,7 +145,8 @@ function check(
     sentence.factIds.forEach((id, i) => {
         if (!cited[i]) fail("unknownFact", id);
     });
-    const vocab = cited.filter((v): v is FactVocabulary => v !== undefined);
+    const citedFacts = cited.filter((f): f is EnumeratedFact => f !== undefined);
+    const vocab = citedFacts.map((f) => f.vocabulary);
 
     // 2. Every reference comes from a cited fact (the played move is always allowed).
     const refs = sentence.refs;
@@ -184,6 +211,7 @@ function check(
             fail("literalInTemplate", word);
         }
     }
+    llmRules(draft, literal, citedFacts, facts, ctx.lang, fail);
 
     // 8. No markup or jargon, and within budget.
     for (const [pattern, name] of FORBIDDEN) {
@@ -209,13 +237,13 @@ export function validateSentences(
     selection: FactSelection,
     ctx: ValidationContext,
 ): { narration: ValidatedNarration; result: ValidationResult } {
-    const allowed = new Map(enumerateFacts(facts, ctx).map((f) => [f.id, f.vocabulary]));
+    const allowed = new Map(enumerateFacts(facts, ctx).map((f) => [f.id, f]));
     const played: MoveRef = { san: facts.played.san, side: facts.mover, at: { t: "before" } };
     const boards = new Boards(facts);
     const failures: ValidationFailure[] = [];
     const kept: CommentarySentence[] = [];
     drafts.forEach((draft, i) => {
-        const found = check(draft, i, allowed, played, boards, selection, ctx);
+        const found = check(draft, i, allowed, played, facts, boards, selection, ctx);
         if (found.length === 0) {
             kept.push(draft.sentence);
         }
@@ -254,6 +282,8 @@ const NARRATIVE_BUDGET = 220;
 interface Citable {
     vocabulary: FactVocabulary;
     indices: number[];
+    /** For a fact of one move: the fact and that move's facts. */
+    move?: { fact: EnumeratedFact; facts: MoveFacts };
 }
 
 /**
@@ -273,7 +303,9 @@ function resolveCitation(
     const match = /^(\d+)\/(.+)$/.exec(id);
     const facts = match ? moves[Number(match[1])] : null;
     const fact = facts ? enumerateFacts(facts, ctx).find((f) => f.id === match![2]) : undefined;
-    return fact ? { vocabulary: fact.vocabulary, indices: [Number(match![1])] } : null;
+    return fact && facts
+        ? { vocabulary: fact.vocabulary, indices: [Number(match![1])], move: { fact, facts } }
+        : null;
 }
 
 /**
@@ -351,6 +383,25 @@ export function validateNarrative(
 
         const literal = template.replace(PLACEHOLDER, "");
         if (SQUARE.test(literal) || DIGIT.test(literal)) fail("literalInTemplate", literal);
+        const lower = literal.toLocaleLowerCase(ctx.lang);
+        for (const word of ctx.pieceWords) {
+            if (
+                word &&
+                draft.claims !== undefined &&
+                lower.includes(word.toLocaleLowerCase(ctx.lang))
+            ) {
+                fail("literalInTemplate", word);
+            }
+        }
+        const moveCitations = cited.flatMap((c) => (c.move ? [c.move] : []));
+        llmRules(
+            draft,
+            literal,
+            moveCitations.map((m) => m.fact),
+            moveCitations[0]?.facts ?? null,
+            ctx.lang,
+            fail,
+        );
         for (const [pattern, name] of FORBIDDEN) {
             if (pattern.test(sentence.text)) fail("forbiddenToken", name);
         }
@@ -377,4 +428,22 @@ export function restoreNarrative(raw: unknown): GameNarrative | null {
         return null;
     }
     return gameNarrativeSchema.safeParse(raw).success ? (raw as GameNarrative) : null;
+}
+
+/**
+ * Model-written sentences that passed validation, followed by the deterministic sentences that
+ * cover what the dropped ones were about: every deterministic sentence sharing a cited fact with a
+ * dropped sentence and not already cited by a kept one. Both inputs are validated, so the result is.
+ */
+export function mergeNarration(
+    kept: ValidatedNarration,
+    drafts: ValidatedNarration,
+    droppedFactIds: string[],
+): ValidatedNarration {
+    const covered = new Set(kept.sentences.flatMap((s) => s.factIds));
+    const dropped = new Set(droppedFactIds);
+    const fallback = drafts.sentences.filter(
+        (s) => s.factIds.some((id) => dropped.has(id)) && !s.factIds.every((id) => covered.has(id)),
+    );
+    return { sentences: [...kept.sentences, ...fallback] } as ValidatedNarration;
 }
