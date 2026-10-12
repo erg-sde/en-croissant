@@ -1,19 +1,29 @@
-import { Grid, Group, Paper, ScrollArea, Stack, Text } from "@mantine/core";
+import { Alert, Grid, Group, Paper, ScrollArea, Stack, Text } from "@mantine/core";
 import { IconZoomCheck } from "@tabler/icons-react";
 import cx from "clsx";
 import equal from "fast-deep-equal";
 import { useAtom, useAtomValue } from "jotai";
-import React, { memo, useCallback, useContext, useMemo } from "react";
+import React, { memo, useCallback, useContext, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { useStore } from "zustand";
 import { commands } from "@/bindings";
 import EvalChart from "@/components/common/EvalChart";
 import ProgressButton from "@/components/common/ProgressButton";
 import { TreeStateContext } from "@/components/common/TreeStateContext";
-import { activeTabAtom, currentReportModalOpenAtom } from "@/state/atoms";
+import type { MoveRef } from "@/bindings";
+import {
+  activeTabAtom,
+  commentaryFactsFamily,
+  commentaryFactsKey,
+  currentReportModalOpenAtom,
+} from "@/state/atoms";
 import { ANNOTATION_INFO, isBasicAnnotation } from "@/utils/annotation";
-import { getGameStats, getMainLine } from "@/utils/chess";
+import { getGameStats, getVariationLine } from "@/utils/chess";
+import { restoreCommentary, restoreNarrative } from "@/utils/commentary/validate";
+import { getNodeAtPath } from "@/utils/treeReducer";
 import classes from "./AnalysisPanel.module.css";
+import CommentaryCard from "./CommentaryCard";
+import GameNarrative from "./GameNarrative";
 import ReportModal from "./ReportModal";
 
 function ReportPanel() {
@@ -27,6 +37,34 @@ function ReportPanel() {
 
   const inProgress = useStore(store, (s) => s.report.inProgress);
   const setInProgress = useStore(store, (s) => s.setReportInProgress);
+  const [reportError, setReportError] = useState<string | null>(null);
+
+  const position = useStore(store, (s) => s.position);
+  const goToMove = useStore(store, (s) => s.goToMove);
+  const makeMoves = useStore(store, (s) => s.makeMoves);
+  const appendComment = useStore(store, (s) => s.appendComment);
+  const factsByMove = useAtomValue(commentaryFactsFamily(activeTab ?? ""));
+  const currentNode = getNodeAtPath(root, position);
+  const commentary = useMemo(
+    () => restoreCommentary(currentNode.commentary),
+    [currentNode.commentary],
+  );
+  const storedNarrative = useStore(store, (s) => s.report.narrative);
+  const narrative = useMemo(() => restoreNarrative(storedNarrative), [storedNarrative]);
+  const facts =
+    factsByMove.get(commentaryFactsKey(root.fen, getVariationLine(root, position, true))) ?? null;
+
+  // Plays a move the commentary cites, with the line leading to it, as a variation.
+  const playCitedMove = useCallback(
+    (ref: MoveRef) => {
+      if (!facts || ref.at.t !== "line") return;
+      const line = facts.lines[ref.at.id];
+      const start = line.origin === "before" ? position.slice(0, -1) : position;
+      goToMove(start);
+      makeMoves({ payload: line.pvUci.slice(0, ref.at.ply + 1) });
+    },
+    [facts, position, goToMove, makeMoves],
+  );
 
   const stats = useMemo(() => getGameStats(root), [root]);
 
@@ -46,11 +84,9 @@ function ReportPanel() {
     <ScrollArea offsetScrollbars>
       <ReportModal
         tab={activeTab!}
-        initialFen={root.fen}
-        moves={getMainLine(root)}
         reportingMode={reportingMode}
         closeReportingMode={closeReportingMode}
-        setInProgress={setInProgress}
+        onError={setReportError}
       />
       <Stack mb="lg" gap="0.4rem" mr="xs">
         <ProgressButton
@@ -70,6 +106,19 @@ function ReportPanel() {
           setInProgress={setInProgress}
         />
 
+        {reportError && (
+          <Alert
+            color="red"
+            title={t("Board.Analysis.ReportFailed")}
+            withCloseButton
+            onClose={() => setReportError(null)}
+          >
+            {t("Board.Analysis.ReportFailed.Desc", { error: reportError })}
+          </Alert>
+        )}
+
+        {narrative && <GameNarrative narrative={narrative} root={root} onGoToMove={goToMove} />}
+
         {stats.whiteAccuracy > 0 && stats.blackAccuracy > 0 && (
           <Group grow>
             <AccuracyCard
@@ -88,6 +137,16 @@ function ReportPanel() {
         <Paper withBorder p="md">
           <EvalChart isAnalysing={inProgress} startAnalysis={openReportingMode} />
         </Paper>
+
+        {commentary && (
+          <CommentaryCard
+            commentary={commentary}
+            facts={facts}
+            rootHalfMoves={root.halfMoves}
+            onMove={facts ? playCitedMove : undefined}
+            onAddToNotes={(text) => appendComment(position, text)}
+          />
+        )}
 
         <GameStats {...stats} />
       </Stack>
