@@ -143,7 +143,7 @@ pub enum NarrationFailure {
     },
     #[serde(rename_all = "camelCase")]
     RateLimit {
-        retry_after_ms: Option<u64>,
+        retry_after_ms: Option<u32>,
     },
     Network {
         message: Redacted,
@@ -285,7 +285,7 @@ fn status_failure(
     match status {
         401 | 403 => NarrationFailure::Auth { status },
         429 => NarrationFailure::RateLimit {
-            retry_after_ms: retry_after.map(|d| d.as_millis() as u64),
+            retry_after_ms: retry_after.map(|d| d.as_millis().min(u32::MAX as u128) as u32),
         },
         _ => NarrationFailure::Provider {
             status,

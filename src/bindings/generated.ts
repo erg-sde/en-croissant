@@ -869,7 +869,7 @@ export type NarrationFailure =
 /**
  * An OpenAI-compatible server needs a base URL.
  */
-{ kind: "missingBaseUrl" } | { kind: "auth"; detail: { status: number } } | { kind: "rateLimit"; detail: { retryAfterMs: bigint | null } } | { kind: "network"; detail: { message: Redacted } } | { kind: "provider"; detail: { status: number; message: Redacted } } | { kind: "malformedResponse"; detail: { message: Redacted } } | { kind: "refused"; detail: { category: string | null } } | { kind: "cancelled" }
+{ kind: "missingBaseUrl" } | { kind: "auth"; detail: { status: number } } | { kind: "rateLimit"; detail: { retryAfterMs: number | null } } | { kind: "network"; detail: { message: Redacted } } | { kind: "provider"; detail: { status: number; message: Redacted } } | { kind: "malformedResponse"; detail: { message: Redacted } } | { kind: "refused"; detail: { category: string | null } } | { kind: "cancelled" }
 export type NarrationGame = { facts: NarrationFact[]; result: string; turningPoints: NarrationItem[] }
 export type NarrationItem = { index: number; fenBefore: string; moveNumber: number; san: string; side: Side; 
 /**
