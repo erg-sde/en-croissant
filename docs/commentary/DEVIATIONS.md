@@ -226,13 +226,81 @@ of this slice. The card's move chips play the cited line only while the report's
   takeaway (d) says "in time trouble" rather than naming a seconds threshold. Takeaway (a) groups the
   motif facts selected for the opponent's replies.
 - `applyReport` takes the narrative as a fifth argument and replaces `report.narrative` on every run.
-  `setGameNarrative` arrives with the model-written narrative (slice 12), its first caller.
+  Slice 12 writes the model-written narrative through `applyCommentary` instead.
 - `buildMoveCommentary` also returns the move's `FactSelection`, which the takeaways aggregate.
 - A second fixture, `gameFacts.json`, holds the facts of a whole miniature from the same Rust writer.
+
+### Slice 12: the prompt is written from scratch, not adapted from kibitz
+
+PLAN.md section 6.4 says the prompt is adapted from kibitz and carries its copyright notice. The
+kibitz source was not available in this session, so `prompt.rs` holds a prompt written from the
+plan's own description (role, the five prohibitions, slot templates, claims, ordering, perspective,
+language, budgets). It carries no third-party notice because it copies no third-party text. If
+upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribution.
+
+### Slice 12: deferred or narrowed
+
+- **Repair round.** `NarratorConfig.repair_rounds` exists and is sent, but no repair request is made:
+  a failing narrative sentence falls back to its draft. The validator's findings are recorded in
+  `provenance.validation`, which is what a repair round would send back.
+- **Preview request.** The consent modal lists what is sent; the "Preview request" link that renders
+  the exact JSON for the current game is not built.
+- **Card badge.** The commentary card does not yet show "{served.model}" instead of "Offline"; the
+  model is stored in `provenance.model` for it.
+- **`ReportState.stage`.** Not added. The narration state is `report.narration` (`running`,
+  `completed`, `failed`, `cancelled`, plus the failure), shown by `NarrationStatus` with a cancel
+  button. `EvalChart`'s overlay still follows `inProgress`, which ends with the engine pass.
+- **Mount reconciliation of stale progress.** `treeRegistry.hasRun(tab)` is there for it; the
+  `ProgressButton` change is not.
+- **Language selector.** `language` stays `null` (the UI language) in this slice; the setting row
+  is not built.
+
+### Slice 12: interface details
+
+- `NarrationFailure` gains `MissingBaseUrl`: the OpenAI-compatible adapter has no default server.
+  `RateLimit.retry_after_ms` is `u32` (milliseconds; `u64` would cross IPC as a `bigint`).
+- `Redacted` masks every `sk-` token (a superset of the plan's `sk-ant-` pattern), `Bearer` tokens
+  and the stored secret, then cuts to 200 characters. No regex crate: a small scanner does it.
+- The Anthropic adapter sends `fallbacks: "default"` and the `server-side-fallback-2026-07-01` beta
+  header only for models that have a server-side fallback (Opus 5 and later, Fable 5, Sonnet 5.5);
+  other models such as Haiku would reject them. `Served.input_tokens` includes cache reads and
+  writes.
+- The OpenAI-compatible adapter retries once with `json_object` (schema appended to the system
+  prompt) after any 400 to the `json_schema` request, and treats `finish_reason: "length"` as
+  `MalformedResponse` and a `refusal` field as `Refused`.
+- One response schema serves both chunk kinds: `{ items, narrative }` with `narrative` nullable.
+  Move chunks ignore a returned narrative; the narrative chunk ignores items. Rust keeps only moves
+  that were asked for and copies `fen_before` and `san` from the request item.
+- The schema has not been exercised against the live API in this session (no key). Its shape is
+  checked by a test (closed objects, every property required, no length or range constraints).
+  Structured-output complexity limits could still reject it; "Test connection" will show that as a
+  `Provider` failure with the API's message.
+- `narrate_game` reports progress under the same job id as the report, stage `commentary`. A
+  provider that cannot be built (no key, insecure URL) returns `Failed` with no request sent.
+- `test_narrator` sends a fixed one-move request (1.e4 with one fact, plus a one-fact narrative) and
+  reports the first failure, or `null` when both chunks parse.
+- Secrets: `FileStore` writes `<app_data_dir>/commentary/secrets.json` (0600 on Unix, created with
+  that mode), removes the file when the last key is cleared, and trims whitespace. The hint is the
+  last four characters only for keys of eight characters or more. Help ▸ Clear saved data clears
+  both providers' keys.
+- TS: `SentenceDraft` gains optional `claims` and `problems`; rules 5 to 7 run only for drafts that
+  carry `claims`, i.e. model-written ones. `renderSlots` (in `segmentize.ts`) renders a template from
+  its slots and reports unknown, empty and unused placeholders, which fail as `literalInTemplate`.
+  Lexicons for rules 6 and 7 cover en, de, ru and zh; `unknownMotif` is English only.
+- `mergeNarration` (validate.ts) appends, after the kept model sentences, the deterministic
+  sentences that share a fact with a dropped sentence and are not already covered.
+- `applyCommentary(runId, writes, narrative)` checks `runId`, the node's SAN and its parent's
+  position (`samePosition`) per write; `setNarration` replaces `setGameNarrative`. The listener
+  turns chunks into records with the run context kept in `treeRegistry` (the last four runs, in
+  memory; after a reload chunks are ignored and the drafts stay).
+- The model setting is free text, prefilled `claude-opus-5-5`.
 
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
 keeps the plan's behaviour behind its settings flags until they are answered.
 
-None yet.
+- **Consent text.** The consent modal's wording (Settings ▸ Commentary ▸ "Narrate with a language
+  model") needs review before narration ships beyond the fork.
+- **Default model.** The plan prefills `claude-opus-5-5`. A cheaper default may suit a feature that
+  rephrases short sentences; the setting is free text either way.
