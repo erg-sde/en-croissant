@@ -210,6 +210,26 @@ and the Board layer), and the inline notation, the table segment and `TOGGLE_COM
 of this slice. The card's move chips play the cited line only while the report's facts are in memory
 (after a reload the text and chips remain, without the "What this is based on" list).
 
+### Slice 9: game narrative details
+
+- `GameFacts.accuracy` values are `number | null` (a side with no analysed move has none). The
+  accuracy numbers use the `winPercent` unit; there is no separate percent unit in the shared
+  `NumberUnit`.
+- Swings are the three largest win-chance changes of at least five points. `decisive` is the first
+  move after the last position in which the eventual loser was still above 50%, and exists only for
+  a decisive result (`1-0`, `0-1`).
+- Narrative validation is `validateNarrative`: citations are `game:<kind>:<n>` or the plan's
+  `<index>/<kind>:<n>`; a move reference must come from a cited fact or be the move played at a cited
+  index, and is checked against the position it was played in. Each narrative sentence may have up
+  to 220 words.
+- Takeaways carry no counts ("more than once") so that no number is written that no fact holds;
+  takeaway (d) says "in time trouble" rather than naming a seconds threshold. Takeaway (a) groups the
+  motif facts selected for the opponent's replies.
+- `applyReport` takes the narrative as a fifth argument and replaces `report.narrative` on every run.
+  `setGameNarrative` arrives with the model-written narrative (slice 12), its first caller.
+- `buildMoveCommentary` also returns the move's `FactSelection`, which the takeaways aggregate.
+- A second fixture, `gameFacts.json`, holds the facts of a whole miniature from the same Rust writer.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork
