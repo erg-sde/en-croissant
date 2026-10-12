@@ -27,7 +27,7 @@ import type {
 export function CommentarySwitch({
   field,
 }: {
-  field: "explain" | "extendedGlyphs" | "threatLines";
+  field: "explain" | "extendedGlyphs" | "threatLines" | "exportToPgn";
 }) {
   const { t } = useTranslation();
   const [settings, setSettings] = useAtom(commentarySettingsAtom);

@@ -658,6 +658,14 @@ export default function Page() {
         render: () => <CommentarySwitch field="threatLines" />,
       },
       {
+        id: "commentary-export-pgn",
+        category: "commentary",
+        title: t("Settings.Commentary.ExportToPgn"),
+        description: t("Settings.Commentary.ExportToPgn.Desc"),
+        keywords: ["commentary", "pgn", "export", "save", "annotator"],
+        render: () => <CommentarySwitch field="exportToPgn" />,
+      },
+      {
         id: "commentary-perspective",
         category: "commentary",
         title: t("Settings.Commentary.Perspective"),

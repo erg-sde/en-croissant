@@ -53,3 +53,20 @@ export function resolvePerspective(
     }
     return white ? "white" : "black";
 }
+
+/** The storage key of `commentarySettingsAtom`. */
+export const COMMENTARY_SETTINGS_KEY = "commentary-settings";
+
+/**
+ * The stored commentary settings, read outside React (PGN export from the store and from file
+ * saves, which must not import the atoms module). Defaults when nothing valid is stored.
+ */
+export function readCommentarySettings(storage: Pick<Storage, "getItem">): CommentarySettings {
+    try {
+        const raw = storage.getItem(COMMENTARY_SETTINGS_KEY);
+        const parsed = commentarySettingsSchema.safeParse(raw ? JSON.parse(raw) : {});
+        return parsed.success ? parsed.data : defaultCommentarySettings;
+    } catch {
+        return defaultCommentarySettings;
+    }
+}
