@@ -11,6 +11,7 @@ import { ANNOTATION_INFO, type Annotation } from "@/utils/annotation";
 import { getPGN } from "@/utils/chess";
 import { parseSanOrUci, positionFromFen } from "@/utils/chessops";
 import type { MoveCommentaryResult } from "@/utils/commentary/report";
+import type { GameNarrative } from "@/utils/commentary/types";
 import { type MainlineSnapshot, samePosition } from "@/utils/commentary/snapshot";
 import { isPrefix } from "@/utils/misc";
 import { playSound } from "@/utils/sound";
@@ -83,6 +84,7 @@ export interface TreeStoreState extends TreeState {
         glyphs: (Annotation | null)[],
         options: AddAnalysisOptions,
         commentary: (MoveCommentaryResult | null)[],
+        narrative?: GameNarrative | null,
     ) => void;
     appendComment: (path: number[], text: string) => void;
 
@@ -518,7 +520,7 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                 }),
             ),
 
-        applyReport: (analysis, glyphs, options, commentary) =>
+        applyReport: (analysis, glyphs, options, commentary, narrative) =>
             set(
                 produce((state) => {
                     if (options.runId !== undefined && state.report.runId !== options.runId) {
@@ -526,6 +528,11 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                     }
                     state.dirty = true;
                     addAnalysis(state, analysis, glyphs, options, commentary);
+                    if (narrative) {
+                        state.report.narrative = narrative;
+                    } else {
+                        delete state.report.narrative;
+                    }
                 }),
             ),
 

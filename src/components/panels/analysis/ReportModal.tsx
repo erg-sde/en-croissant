@@ -22,8 +22,13 @@ import type { TreeStoreState } from "@/state/store/tree";
 import { treeRegistry } from "@/state/store/treeRegistry";
 import { getMainLine } from "@/utils/chess";
 import type { Annotation } from "@/utils/annotation";
+import type { GameNarrative } from "@/utils/commentary/types";
 import { deriveGlyphs } from "@/utils/commentary/classify";
-import { buildMoveCommentary, type MoveCommentaryResult } from "@/utils/commentary/report";
+import {
+  buildGameNarrative,
+  buildMoveCommentary,
+  type MoveCommentaryResult,
+} from "@/utils/commentary/report";
 import { pieceWords, type Translate } from "@/utils/commentary/segmentize";
 import { resolvePerspective } from "@/utils/commentary/settings";
 import { takeMainlineSnapshot } from "@/utils/commentary/snapshot";
@@ -116,7 +121,7 @@ function ReportModal({
     const commentaryFor = async (
       analysis: MoveAnalysis[],
       glyphs: (Annotation | null)[],
-    ): Promise<(MoveCommentaryResult | null)[]> => {
+    ): Promise<{ moves: (MoveCommentaryResult | null)[]; narrative: GameNarrative | null }> => {
       const translate: Translate = (key, options) => String(i18n.t(key, options));
       const run = {
         t: translate,
@@ -128,9 +133,17 @@ function ReportModal({
         pieceWords: pieceWords(translate),
         now: Date.now(),
       };
-      return analysis.map((entry, i) =>
+      const moves = analysis.map((entry, i) =>
         entry.facts ? buildMoveCommentary(entry.facts, glyphs[i], run) : null,
       );
+      const narrative = buildGameNarrative(
+        analysis.map((entry) => entry.facts ?? null),
+        analysis.map((entry) => entry.fen),
+        moves.map((result) => result?.selection ?? null),
+        headers.result,
+        run,
+      );
+      return { moves, narrative };
     };
     const finish = (write?: (live: TreeStoreState) => void) =>
       treeRegistry.withStore(tab, (live) => {
@@ -164,7 +177,7 @@ function ReportModal({
             finish((live) => live.addAnalysis(analysis.data, glyphs, options));
             return;
           }
-          const commentary = await commentaryFor(analysis.data, glyphs);
+          const { moves: commentary, narrative } = await commentaryFor(analysis.data, glyphs);
           setCommentaryFacts(
             new Map(
               analysis.data.flatMap((entry, i) =>
@@ -174,7 +187,7 @@ function ReportModal({
               ),
             ),
           );
-          finish((live) => live.applyReport(analysis.data, glyphs, options, commentary));
+          finish((live) => live.applyReport(analysis.data, glyphs, options, commentary, narrative));
           return;
         }
         finish();

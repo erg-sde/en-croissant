@@ -19,10 +19,11 @@ import {
 } from "@/state/atoms";
 import { ANNOTATION_INFO, isBasicAnnotation } from "@/utils/annotation";
 import { getGameStats, getVariationLine } from "@/utils/chess";
-import { restoreCommentary } from "@/utils/commentary/validate";
+import { restoreCommentary, restoreNarrative } from "@/utils/commentary/validate";
 import { getNodeAtPath } from "@/utils/treeReducer";
 import classes from "./AnalysisPanel.module.css";
 import CommentaryCard from "./CommentaryCard";
+import GameNarrative from "./GameNarrative";
 import ReportModal from "./ReportModal";
 
 function ReportPanel() {
@@ -48,6 +49,8 @@ function ReportPanel() {
     () => restoreCommentary(currentNode.commentary),
     [currentNode.commentary],
   );
+  const storedNarrative = useStore(store, (s) => s.report.narrative);
+  const narrative = useMemo(() => restoreNarrative(storedNarrative), [storedNarrative]);
   const facts =
     factsByMove.get(commentaryFactsKey(root.fen, getVariationLine(root, position, true))) ?? null;
 
@@ -113,6 +116,8 @@ function ReportPanel() {
             {t("Board.Analysis.ReportFailed.Desc", { error: reportError })}
           </Alert>
         )}
+
+        {narrative && <GameNarrative narrative={narrative} root={root} onGoToMove={goToMove} />}
 
         {stats.whiteAccuracy > 0 && stats.blackAccuracy > 0 && (
           <Group grow>
