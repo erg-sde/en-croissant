@@ -5,9 +5,9 @@ import { IconX } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
 import { error as logError } from "@tauri-apps/plugin-log";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
-import { memo, useContext, useEffect, useMemo } from "react";
+import { memo, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
-import { commands, type MoveAnalysis } from "@/bindings";
+import { commands, type MoveAnalysis, type NarrationRun, type SecretStatus } from "@/bindings";
 import { TreeStateContext } from "@/components/common/TreeStateContext";
 import {
   commentaryFactsFamily,
@@ -19,14 +19,18 @@ import {
   sessionsAtom,
 } from "@/state/atoms";
 import type { TreeStoreState } from "@/state/store/tree";
+import type { NarrationState } from "@/utils/treeReducer";
 import { treeRegistry } from "@/state/store/treeRegistry";
 import { getMainLine } from "@/utils/chess";
 import type { Annotation } from "@/utils/annotation";
 import type { GameNarrative } from "@/utils/commentary/types";
 import { deriveGlyphs } from "@/utils/commentary/classify";
+import { buildNarrationRequest, type NarrationRunContext } from "@/utils/commentary/llm";
+import { canNarrate, narratorConfig, narratorHost } from "@/utils/commentary/narrator";
 import {
   buildGameNarrative,
   buildMoveCommentary,
+  type CommentaryRun,
   type MoveCommentaryResult,
 } from "@/utils/commentary/report";
 import { pieceWords, type Translate } from "@/utils/commentary/segmentize";
@@ -63,6 +67,16 @@ function ReportModal({
   const store = useContext(TreeStateContext)!;
 
   const [reportSettings, setReportSettings] = useAtom(reportSettingsAtom);
+  const [secret, setSecret] = useState<SecretStatus | null>(null);
+  const [narrate, setNarrate] = useState(true);
+  const narrationAvailable = commentarySettings.explain && canNarrate(commentarySettings, secret);
+
+  useEffect(() => {
+    if (!reportingMode || !commentarySettings.llmEnabled) return;
+    commands.getCommentarySecretStatus(commentarySettings.provider).then((result) => {
+      setSecret(result.status === "ok" ? result.data : null);
+    });
+  }, [reportingMode, commentarySettings.llmEnabled, commentarySettings.provider]);
 
   const form = useForm({
     initialValues: reportSettings,
@@ -115,15 +129,20 @@ function ReportModal({
     const snapshot = takeMainlineSnapshot(root, headers);
     const moves = getMainLine(root);
     const explain = commentarySettings.explain;
+    const narrateNow = narrationAvailable && narrate;
     beginReport(snapshot);
 
     // Deterministic commentary for every analysed move, from the facts the engine pass returned.
     const commentaryFor = async (
       analysis: MoveAnalysis[],
       glyphs: (Annotation | null)[],
-    ): Promise<{ moves: (MoveCommentaryResult | null)[]; narrative: GameNarrative | null }> => {
+    ): Promise<{
+      moves: (MoveCommentaryResult | null)[];
+      narrative: GameNarrative | null;
+      run: CommentaryRun;
+    }> => {
       const translate: Translate = (key, options) => String(i18n.t(key, options));
-      const run = {
+      const run: CommentaryRun = {
         t: translate,
         lang: i18n.language,
         rootHalfMoves: root.halfMoves,
@@ -143,7 +162,36 @@ function ReportModal({
         headers.result,
         run,
       );
-      return { moves, narrative };
+      return { moves, narrative, run };
+    };
+
+    // Optional model narration: sentences are upgraded in place as chunks arrive (see
+    // CommentaryListener); the deterministic commentary is already written and stays on failure.
+    const setNarration = (narration: NarrationState) =>
+      treeRegistry.withStore(tab, (live) =>
+        live.getState().setNarration(snapshot.runId, narration),
+      );
+    const startNarration = (context: NarrationRunContext) => {
+      treeRegistry.startRun(context);
+      setNarration({ status: "running" });
+      const outcome = (run: NarrationRun): NarrationState =>
+        run.status === "failed"
+          ? { status: "failed", failure: run.failure }
+          : { status: run.status };
+      commands
+        .narrateGame(
+          `report_${tab}`,
+          snapshot.runId,
+          buildNarrationRequest(context),
+          narratorConfig(commentarySettings, i18n.language, context.run.perspective),
+        )
+        .then((result) =>
+          setNarration(result.status === "ok" ? outcome(result.data) : { status: "failed" }),
+        )
+        .catch((e) => {
+          logError(`Narration failed: ${e}`);
+          setNarration({ status: "failed" });
+        });
     };
     const finish = (write?: (live: TreeStoreState) => void) =>
       treeRegistry.withStore(tab, (live) => {
@@ -177,7 +225,7 @@ function ReportModal({
             finish((live) => live.addAnalysis(analysis.data, glyphs, options));
             return;
           }
-          const { moves: commentary, narrative } = await commentaryFor(analysis.data, glyphs);
+          const { moves: commentary, narrative, run } = await commentaryFor(analysis.data, glyphs);
           setCommentaryFacts(
             new Map(
               analysis.data.flatMap((entry, i) =>
@@ -188,6 +236,17 @@ function ReportModal({
             ),
           );
           finish((live) => live.applyReport(analysis.data, glyphs, options, commentary, narrative));
+          if (narrateNow) {
+            startNarration({
+              tab,
+              runId: snapshot.runId,
+              provider: commentarySettings.provider,
+              run,
+              moves: analysis.data.map((entry) => entry.facts ?? null),
+              results: commentary,
+              narrative,
+            });
+          }
           return;
         }
         finish();
@@ -301,6 +360,17 @@ function ReportModal({
                   });
                 }
               }}
+            />
+          )}
+
+          {narrationAvailable && (
+            <Checkbox
+              label={t("Settings.Commentary.NarrateWith", {
+                host: narratorHost(commentarySettings),
+              })}
+              description={t("Settings.Commentary.NarrateWith.Desc")}
+              checked={narrate}
+              onChange={(event) => setNarrate(event.currentTarget.checked)}
             />
           )}
 

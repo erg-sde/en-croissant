@@ -24,6 +24,7 @@ import { getNodeAtPath } from "@/utils/treeReducer";
 import classes from "./AnalysisPanel.module.css";
 import CommentaryCard from "./CommentaryCard";
 import GameNarrative from "./GameNarrative";
+import NarrationStatus from "./NarrationStatus";
 import ReportModal from "./ReportModal";
 
 function ReportPanel() {
@@ -50,6 +51,7 @@ function ReportPanel() {
     [currentNode.commentary],
   );
   const storedNarrative = useStore(store, (s) => s.report.narrative);
+  const narration = useStore(store, (s) => s.report.narration);
   const narrative = useMemo(() => restoreNarrative(storedNarrative), [storedNarrative]);
   const facts =
     factsByMove.get(commentaryFactsKey(root.fen, getVariationLine(root, position, true))) ?? null;
@@ -116,6 +118,8 @@ function ReportPanel() {
             {t("Board.Analysis.ReportFailed.Desc", { error: reportError })}
           </Alert>
         )}
+
+        <NarrationStatus narration={narration} onCancel={handleCancel} />
 
         {narrative && <GameNarrative narrative={narrative} root={root} onGoToMove={goToMove} />}
 

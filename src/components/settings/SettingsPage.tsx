@@ -66,7 +66,13 @@ import { keyMapAtom } from "@/state/keybinds";
 import FileInput from "../common/FileInput";
 import BoardSelect from "./BoardSelect";
 import ColorControl from "./ColorControl";
-import { CommentaryDetailSelect, CommentarySwitch } from "./CommentarySettings";
+import {
+  CommentaryDetailSelect,
+  CommentaryPerspectiveSelect,
+  CommentarySwitch,
+  NarrationSwitch,
+  NarratorSettings,
+} from "./CommentarySettings";
 import FontSizeSlider from "./FontSizeSlider";
 import KeybindInput from "./KeybindInput";
 import PiecesSelect from "./PiecesSelect";
@@ -642,6 +648,30 @@ export default function Page() {
         description: t("Settings.Commentary.ExtendedGlyphs.Desc"),
         keywords: ["commentary", "glyph", "nag", "annotation", "only move", "miss"],
         render: () => <CommentarySwitch field="extendedGlyphs" />,
+      },
+      {
+        id: "commentary-perspective",
+        category: "commentary",
+        title: t("Settings.Commentary.Perspective"),
+        description: t("Settings.Commentary.Perspective.Desc"),
+        keywords: ["commentary", "perspective", "you", "player"],
+        render: () => <CommentaryPerspectiveSelect />,
+      },
+      {
+        id: "commentary-llm",
+        category: "commentary",
+        title: t("Settings.Commentary.Llm"),
+        description: t("Settings.Commentary.Llm.Desc"),
+        keywords: ["commentary", "llm", "ai", "model", "narrate", "anthropic", "ollama"],
+        render: () => <NarrationSwitch />,
+      },
+      {
+        id: "commentary-narrator",
+        category: "commentary",
+        title: t("Settings.Commentary.Narrator"),
+        description: t("Settings.Commentary.Narrator.Desc"),
+        keywords: ["commentary", "api key", "provider", "model", "base url", "anthropic", "ollama"],
+        render: () => <NarratorSettings />,
       },
       // Privacy settings
       {
