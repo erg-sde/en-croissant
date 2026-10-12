@@ -479,10 +479,104 @@ mod tests {
             .unwrap();
             out.insert(case.name.into(), serde_json::to_value(facts).unwrap());
         }
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../src/utils/tests/commentary/fixtures/moveFacts.json");
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        std::fs::write(&path, serde_json::to_string_pretty(&out).unwrap() + "\n").unwrap();
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../src/utils/tests/commentary/fixtures");
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("moveFacts.json"),
+            serde_json::to_string_pretty(&out).unwrap() + "\n",
+        )
+        .unwrap();
+
+        // A whole game: 1. e4 e5 2. Qh5 Nc6 3. Bc4 Nf6?? 4. Qxf7#, with two scripted lines per
+        // position, as the report's post-pass computes it.
+        let moves = ["e2e4", "e7e5", "d1h5", "b8c6", "f1c4", "g8f6", "h5f7"];
+        let lines: [&[(&str, EvalValue)]; 8] = [
+            &[
+                ("e2e4 e7e5", EvalValue::Cp(30)),
+                ("d2d4 d7d5", EvalValue::Cp(25)),
+            ],
+            &[
+                ("e7e5 g1f3", EvalValue::Cp(30)),
+                ("c7c5 g1f3", EvalValue::Cp(35)),
+            ],
+            &[
+                ("g1f3 b8c6", EvalValue::Cp(35)),
+                ("d1h5 b8c6", EvalValue::Cp(0)),
+            ],
+            &[
+                ("b8c6 f1c4", EvalValue::Cp(0)),
+                ("g7g6 h5f3", EvalValue::Cp(-10)),
+            ],
+            &[
+                ("f1c4 g7g6", EvalValue::Cp(0)),
+                ("h5f3 g8f6", EvalValue::Cp(-10)),
+            ],
+            &[
+                ("g7g6 h5f3", EvalValue::Cp(-30)),
+                ("d8e7 g1f3", EvalValue::Cp(-10)),
+            ],
+            &[("h5f7", EvalValue::Mate(1))],
+            &[],
+        ];
+        let mut positions = vec![Chess::default()];
+        let mut played = Vec::new();
+        for m in moves {
+            let before = positions.last().unwrap().clone();
+            let mv = uci(&before, m);
+            let mut after = before.clone();
+            after.play_unchecked(&mv);
+            played.push(mv);
+            positions.push(after);
+        }
+        let best: Vec<Vec<BestMoves>> = lines
+            .iter()
+            .zip(&positions)
+            .map(|(ls, p)| {
+                ls.iter()
+                    .enumerate()
+                    .map(|(k, (u, v))| {
+                        let mut l = line(p, u, *v);
+                        l.multipv = k as u16 + 1;
+                        l
+                    })
+                    .collect()
+            })
+            .collect();
+        let fens: Vec<String> = positions
+            .iter()
+            .map(|p| {
+                shakmaty::fen::Fen::from_position(p.clone(), shakmaty::EnPassantMode::Legal)
+                    .to_string()
+            })
+            .collect();
+        let opening = crate::opening::get_opening_match(fens.clone()).unwrap();
+        let mut game_moves = vec![serde_json::Value::Null];
+        let mut prev: Option<EvalFacts> = None;
+        for i in 1..positions.len() {
+            let facts = extract_move_facts(&FactsContext {
+                index: i as u32,
+                before: &positions[i - 1],
+                mv: &played[i - 1],
+                parent_lines: &best[i - 1],
+                own_lines: &best[i],
+                opening: opening.as_ref(),
+                prev: prev.as_ref(),
+                time: None,
+                terminal: positions[i].is_game_over(),
+                novelty: false,
+            });
+            prev = facts.as_ref().map(|f| f.eval.clone());
+            game_moves.push(serde_json::to_value(facts).unwrap());
+        }
+        let game = serde_json::json!({
+            "scholarsMate": { "result": "1-0", "fens": fens, "moves": game_moves }
+        });
+        std::fs::write(
+            dir.join("gameFacts.json"),
+            serde_json::to_string_pretty(&game).unwrap() + "\n",
+        )
+        .unwrap();
     }
 
     #[test]
