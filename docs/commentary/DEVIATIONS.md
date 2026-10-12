@@ -245,8 +245,6 @@ upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribu
   `provenance.validation`, which is what a repair round would send back.
 - **Preview request.** The consent modal lists what is sent; the "Preview request" link that renders
   the exact JSON for the current game is not built.
-- **Card badge.** The commentary card does not yet show "{served.model}" instead of "Offline"; the
-  model is stored in `provenance.model` for it.
 - **`ReportState.stage`.** Not added. The narration state is `report.narration` (`running`,
   `completed`, `failed`, `cancelled`, plus the failure), shown by `NarrationStatus` with a cancel
   button. `EvalChart`'s overlay still follows `inProgress`, which ends with the engine pass.
@@ -301,6 +299,38 @@ upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribu
   - **`sideBetter`.** The English lexicon now matches "White/Black/you is/stands … better", "advantage" and "the upper hand", not "the better move".
   - **Failure details** name what was found ("square", "digit", "piece word queen") instead of echoing the template, so they can be logged.
   - **Logging.** Narration logs counts per chunk, tokens, the outcome, and validation failures by rule. It never logs a key or the model's text.
+
+### Slice 10: explain position and threat lines
+
+- **Order.** Slice 10 is stacked on slice 12 (done first at the owner's request); it does not depend
+  on it.
+- **`parse_uci_attrs` stays private.** `EngineProcess::{new,set_options,go,stop,kill}` and
+  `search_once` are `pub(crate)`; `explain_position` reads lines only through `search_once`, so I3's
+  "only reader of UCI lines" holds without exposing the parser.
+- **Threat candidates.** Moves with `OnlyMove`, `ClearlyBest`, `MateFound`, `Sacrifice` or `Miss`,
+  or a static mate threat (`threats::mate_threats`) after the move, ordered by `win_delta` ascending,
+  at most 12. "Never for ?!/?/??" is enforced in Rust as "never when the move lost 5 points of win
+  chance or more", since glyphs are derived in the frontend; this also excludes most `Miss` moves.
+  Threat lines are searched after the facts pass, and the facts of those moves are recomputed with
+  the line. They use the report's `go_mode` with MultiPV 1.
+- **Threat lines in the frontend.** `lineStart` replays a threat line from `fen_after` with the
+  turn passed back (it used the plain `fen_after`, where the threat moves are illegal), and its
+  first move is numbered as the mover's next move ("3. Bc4 threatens 4.Qxf7#"). New templates
+  `Commentary.Any.Threat.{Mate,Material,MaterialGain,Eval}`.
+- **`explain_position`** takes no `AppHandle` and emits no progress: it registers its job under the
+  given id (so a new request cancels the previous one) and unregisters on every exit; the engine is
+  quit explicitly and killed on drop. Engine options other than `MultiPV` and `Threads` are passed
+  through. The opening, previous-move and clock facts are not available on demand.
+- **Explain button.** `ExplainPosition` sits at the top of the engine stack in the analysis panel
+  (visible with any number of engines). The engine is the report's engine, else the first local
+  engine. The glyph comes from `explainGlyph` (the report's `getAnnotation` thresholds on the two
+  searched lines) and the selection uses the `allMoves` detail. "Keep" calls a new
+  `keepCommentary(path, fenBefore, record)` store action, which works on any line, not only the
+  mainline (`applyCommentary` is mainline- and run-bound). "Keep" sets `dirty`; exporting the text
+  is slice 11's flag.
+- **Model badge.** The card now shows the model that answered for model-written records (deferred
+  from slice 12).
+- **Hotkey** `EXPLAIN_POSITION` ("e") is active while the analysis panel is shown.
 
 ## Questions for upstream
 
