@@ -21,18 +21,23 @@ also lists the commits of the slices below it until those merge.
 | 8 | Deterministic move explanations | `commentary/08-deterministic-commentary` | https://github.com/erg-sde/en-croissant/pull/10 |
 | 9 | Game narrative, takeaways and key moments | `commentary/09-game-narrative` | https://github.com/erg-sde/en-croissant/pull/11 |
 | 12 | Optional LLM narration, validated | `commentary/12-llm-narration` | https://github.com/erg-sde/en-croissant/pull/12 |
+| 10 | Explain this position, threat lines | `commentary/10-explain-position` | https://github.com/erg-sde/en-croissant/pull/13 |
+| 11 | Export commentary to PGN | `commentary/11-export-commentary` | https://github.com/erg-sde/en-croissant/pull/14 |
+| 13 | Bindings-drift test (partial) | `commentary/13-bindings-drift` | https://github.com/erg-sde/en-croissant/pull/15 |
 
 Each PR description states its slice, what it changes, the invariant rows it establishes, how it was
 tested and what is deferred. Departures from `PLAN.md` are in `DEVIATIONS.md`, slice by slice.
 
 ## Slices in progress
 
-None. Slice 12 was done before 10 and 11 at the owner's request (it stacks on 9). Next: 10 (explain
-position, threat lines) and 11 (export commentary to PGN), stacked on 12.
+None. Order of the stack: 0-9, 12, 10, 11, 13 (slice 12 was done before 10 and 11 at the owner's
+request). Merge in that order. What remains of the plan: slice 13's cargo CI job (blocked on the
+red upstream baseline, see question 1) and its evaluation harness (needs a game corpus), and slice
+14 ("later" items).
 
 ## Trying narration (slice 12)
 
-1. `git switch commentary/12-llm-narration`, `pnpm dev`.
+1. `git switch commentary/13-bindings-drift` (the top of the stack), `pnpm dev`.
 2. Settings ▸ Commentary ▸ "Narrate with a language model": read and accept the consent modal.
 3. In "Language model", keep Anthropic and `claude-opus-5-5`, paste the key into "API key", press
    Save (the key goes to `<app data>/commentary/secrets.json` and is never shown again), then
@@ -48,13 +53,13 @@ Not yet verified against the live API (no key in the session); "Test connection"
 
 | Suite | Baseline | Now | Added |
 |---|---|---|---|
-| `pnpm test` (vitest) | 40 | 124 | 84 |
-| `cargo test` | 52 (44 pass, 8 fail) | 138 (125 pass, 8 fail, 5 ignored) | 86 |
+| `pnpm test` (vitest) | 40 | 132 | 92 |
+| `cargo test` | 52 (44 pass, 8 fail) | 143 (129 pass, 8 fail, 6 ignored) | 91 |
 
 The 8 failing Rust tests fail on the untouched baseline (`chess::tests::eval_*`,
 `db::search::tests::get_move_after_exact_match_test`); upstream CI runs no cargo step. No slice adds
-a failure. Five Rust tests are `#[ignore]`: four need a UCI engine (`EC_TEST_ENGINE`) and one writes
-the frontend fixtures.
+a failure. Six Rust tests are `#[ignore]`: five need a UCI engine (`EC_TEST_ENGINE`; all pass against
+Stockfish) and one writes the frontend fixtures.
 
 ## Environment notes
 
@@ -100,7 +105,7 @@ section 13 drafts it).
 git clone git@github.com:erg-sde/en-croissant.git && cd en-croissant
 git remote add upstream https://github.com/franciscoBSalgueiro/en-croissant.git
 git config core.autocrlf false && git config core.eol lf
-git switch commentary/12-llm-narration
+git switch commentary/13-bindings-drift
 pnpm i --frozen-lockfile
 pnpm lint:ci && pnpm test
 ```
@@ -114,8 +119,4 @@ $env:EC_TEST_ENGINE = "<path to stockfish>"; cargo test -- --include-ignored --s
 cargo clippy --all-targets -- -D warnings
 ```
 
-Start slice 10:
-
-```bash
-git switch -c commentary/10-explain-position commentary/12-llm-narration
-```
+Every slice through 13 is open as a PR; nothing is in progress.
