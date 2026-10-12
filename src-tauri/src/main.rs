@@ -24,6 +24,10 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chess::{BestMovesPayload, EngineProcess};
+use commentary::{
+    narrate::{narrate_game, test_narrator, NarrationChunk},
+    secrets::{clear_commentary_secret, get_commentary_secret_status, set_commentary_secret},
+};
 use dashmap::DashMap;
 use db::{DatabaseProgress, GameQuery, NormalizedGame, PositionStats};
 use derivative::Derivative;
@@ -172,7 +176,12 @@ fn main() {
             preload_reference_db,
             get_progress,
             clear_progress,
-            get_sound_server_port
+            get_sound_server_port,
+            narrate_game,
+            test_narrator,
+            set_commentary_secret,
+            clear_commentary_secret,
+            get_commentary_secret_status
         ))
         .events(tauri_specta::collect_events!(
             BestMovesPayload,
@@ -180,13 +189,15 @@ fn main() {
             ProgressEvent,
             GameMoveEvent,
             ClockUpdateEvent,
-            GameOverEvent
+            GameOverEvent,
+            NarrationChunk
         ))
         // Commentary types the frontend builds and validates against; no command returns them.
         .typ::<commentary::facts::FactVocabulary>()
         .typ::<commentary::facts::FactKind>()
         .typ::<commentary::facts::CommentaryKind>()
         .typ::<commentary::facts::Perspective>()
+        .typ::<commentary::narrate::NarratedSentence>()
         .constant(
             "FACTS_SCHEMA_VERSION",
             commentary::facts::FACTS_SCHEMA_VERSION,

@@ -11,6 +11,7 @@ use crate::{error::Error, jobs::JobRegistry};
 #[serde(rename_all = "camelCase")]
 pub enum ProgressStage {
     Engine,
+    Commentary,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Type)]

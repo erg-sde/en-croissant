@@ -471,6 +471,50 @@ async getSoundServerPort() : Promise<Result<number, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async narrateGame(id: string, runId: string, request: NarrationRequest, config: NarratorConfig) : Promise<Result<NarrationRun, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("narrate_game", { id, runId, request, config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Sends a one-move request and reports why it failed, or `None` when the provider answered with
+ * valid JSON.
+ */
+async testNarrator(config: NarratorConfig) : Promise<Result<NarrationFailure | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_narrator", { config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setCommentarySecret(provider: ProviderKind, secret: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_commentary_secret", { provider, secret }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearCommentarySecret(provider: ProviderKind) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_commentary_secret", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getCommentarySecretStatus(provider: ProviderKind) : Promise<Result<SecretStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_commentary_secret_status", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -483,6 +527,7 @@ clockUpdateEvent: ClockUpdateEvent,
 databaseProgress: DatabaseProgress,
 gameMoveEvent: GameMoveEvent,
 gameOverEvent: GameOverEvent,
+narrationChunk: NarrationChunk,
 progressEvent: ProgressEvent
 }>({
 bestMovesPayload: "best-moves-payload",
@@ -490,6 +535,7 @@ clockUpdateEvent: "clock-update-event",
 databaseProgress: "database-progress",
 gameMoveEvent: "game-move-event",
 gameOverEvent: "game-over-event",
+narrationChunk: "narration-chunk",
 progressEvent: "progress-event"
 })
 
@@ -561,6 +607,10 @@ kingZoneAttackers: ByColor<number>; pawns: ByColor<PawnFacts>;
  */
 openFiles: string[] }
 export type ByColor<T> = { white: T; black: T }
+/**
+ * A relation a sentence asserts, checked against the cited facts.
+ */
+export type Claim = { kind: "attacks"; attacker: PieceRef; target: PieceRef } | { kind: "forks"; attacker: PieceRef; targets: PieceRef[] } | { kind: "pins"; attacker: PieceRef; pinned: PieceRef } | { kind: "hanging"; piece: PieceRef } | { kind: "winsMaterial"; side: Side; pawns: number; line: number } | { kind: "mates"; side: Side; mateIn: number; line: number } | { kind: "better"; side: Side; at: PositionRef } | { kind: "threatens"; side: Side; line: number }
 export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; blackTime: bigint | null }
 /**
  * Why a move's commentary exists.
@@ -786,6 +836,73 @@ refutation: number | null;
  */
 threat: number | null; criticality: Criticality[]; before: BoardFacts; after: BoardFacts; delta: BoardDelta; opening: OpeningFacts | null; novelty: boolean; time: TimeFacts | null }
 export type MoveRef = { san: string; side: Side; at: PositionRef }
+export type NarratedGame = { sentences: NarratedSentence[]; takeaways: NarratedTakeaway[] }
+export type NarratedMove = { index: number; 
+/**
+ * Copied from the request item, not from the model.
+ */
+fenBefore?: string; san?: string; sentences: NarratedSentence[] }
+export type NarratedSentence = { template: string; slots: Slots; claims: Claim[]; factIds: string[] }
+export type NarratedTakeaway = { indices: number[]; sentences: NarratedSentence[] }
+/**
+ * One answered request.
+ */
+export type NarrationChunk = { id: string; runId: string; chunk: number; chunks: number; items: NarratedMove[]; narrative: NarratedGame | null; served: Served }
+export type NarrationFact = { id: string; kind: FactKind; vocabulary: FactVocabulary; 
+/**
+ * The deterministic sentence that cited this fact.
+ */
+textHint: string }
+/**
+ * Why a narration request failed. Returned as data, never as a command error, so the frontend can
+ * show it and keep the deterministic commentary.
+ */
+export type NarrationFailure = 
+/**
+ * The provider needs a key and none is stored.
+ */
+{ kind: "noKey" } | 
+/**
+ * The base URL is not `https` and not on this computer.
+ */
+{ kind: "insecureBaseUrl" } | 
+/**
+ * An OpenAI-compatible server needs a base URL.
+ */
+{ kind: "missingBaseUrl" } | { kind: "auth"; detail: { status: number } } | { kind: "rateLimit"; detail: { retryAfterMs: bigint | null } } | { kind: "network"; detail: { message: Redacted } } | { kind: "provider"; detail: { status: number; message: Redacted } } | { kind: "malformedResponse"; detail: { message: Redacted } } | { kind: "refused"; detail: { category: string | null } } | { kind: "cancelled" }
+export type NarrationGame = { facts: NarrationFact[]; result: string; turningPoints: NarrationItem[] }
+export type NarrationItem = { index: number; fenBefore: string; moveNumber: number; san: string; side: Side; 
+/**
+ * The glyph or classification label, e.g. "??".
+ */
+classification: string; kind: CommentaryKind; budgetWords: number; facts: NarrationFact[] }
+/**
+ * Everything sent to a provider: facts, their vocabulary and draft sentences. Never names,
+ * headers, comments or paths.
+ */
+export type NarrationRequest = { lang: string; perspective: Perspective; game: NarrationGame; items: NarrationItem[] }
+export type NarrationRun = { status: "completed"; chunks: number } | { status: "cancelled"; chunksDone: number } | { status: "failed"; chunksDone: number; failure: NarrationFailure }
+/**
+ * How to reach a model. Crosses IPC, so it has no key field: the key is read from the secret store
+ * in Rust when a request is built.
+ */
+export type NarratorConfig = { provider: ProviderKind; model: string; 
+/**
+ * `None` for the provider's default; `https` unless the host is local.
+ */
+baseUrl: string | null; 
+/**
+ * BCP-47 language of the output, e.g. "pt-PT".
+ */
+language: string; 
+/**
+ * Resolved in the frontend; never "auto" here.
+ */
+perspective: Perspective; budget: WordBudget; 
+/**
+ * Rounds in which the validator's findings are sent back. Reserved; not used yet.
+ */
+repairRounds: number }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
 export type NumberRef = { value: number; unit: NumberUnit }
 export type NumberUnit = "pawns" | "mateIn" | "winPercent" | "move" | 
@@ -843,12 +960,19 @@ export type PositionRef = { t: "before" } | { t: "after" } | { t: "line"; id: nu
 export type PositionStats = { move: string; white: number; draw: number; black: number }
 export type ProgressEvent = { id: string; progress: number; finished: boolean; stage?: ProgressStage | null; status?: ProgressStatus | null }
 export type ProgressItem = { id: string; progress: number; finished: boolean; stage?: ProgressStage | null; status?: ProgressStatus | null }
-export type ProgressStage = "engine"
+export type ProgressStage = "engine" | "commentary"
 export type ProgressStatus = "running" | "finished" | "cancelled" | "failed"
+export type ProviderKind = "anthropic" | "openaiCompatible"
 export type Puzzle = { id: number; fen: string; moves: string; rating: number; rating_deviation: number; popularity: number; nb_plays: number }
 export type PuzzleDatabaseInfo = { title: string; description: string; puzzleCount: number; storageSize: bigint; path: string }
 export type QueryOptions<SortT> = { skipCount: boolean; page?: number | null; pageSize?: number | null; sort: SortT; direction: SortDirection }
 export type QueryResponse<T> = { data: T; count: number | null }
+/**
+ * Text that cannot leak a credential: API keys (`sk-...`), bearer tokens and the stored secret are
+ * masked, and the text is cut to 200 characters. Its `Debug` and `Serialize` show only the
+ * redacted form, so even an accidental `log::error!("{:?}", failure)` stays safe.
+ */
+export type Redacted = string
 export type Score = { value: ScoreValue; 
 /**
  * The probability of each result (win, draw, loss).
@@ -863,9 +987,22 @@ export type ScoreValue =
  * Mate coming up in this many moves. Negative value means the engine is getting mated.
  */
 { type: "mate"; value: number }
+export type SecretStatus = { configured: boolean; 
+/**
+ * The key's last four characters.
+ */
+hint: string | null }
+/**
+ * The model that answered and what it used, from the response.
+ */
+export type Served = { model: string; inputTokens: number; outputTokens: number }
 export type Side = "white" | "black"
 export type Sides = "BlackWhite" | "WhiteBlack" | "Any"
 export type SiteStatsData = { site: string; player: string; data: StatsData[] }
+/**
+ * The values a template's placeholders may take. Fixed names keep the schema closed and flat.
+ */
+export type Slots = { m0: MoveRef | null; m1: MoveRef | null; p0: PieceRef | null; p1: PieceRef | null; s0: string | null; s1: string | null; n0: NumberRef | null; n1: NumberRef | null; side: Side | null; pieces: PieceRef[] }
 export type SortDirection = "asc" | "desc"
 export type StatsData = { date: string; is_player_white: boolean; player_elo: number; result: GameOutcome; time_control: string; opening: string }
 export type Target = { square: string; piece: PieceKind }
@@ -946,6 +1083,10 @@ name: string;
  * The default value of this string option.
  */
 default: string | null } }
+/**
+ * Word limits for one move, a key moment and the game narrative.
+ */
+export type WordBudget = { moveWords: number; keyMomentWords: number; narrativeWords: number }
 
 /** tauri-specta globals **/
 
