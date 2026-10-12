@@ -24,7 +24,11 @@ import type {
 } from "@/utils/commentary/settings";
 
 /** A switch bound to one boolean commentary setting. */
-export function CommentarySwitch({ field }: { field: "explain" | "extendedGlyphs" }) {
+export function CommentarySwitch({
+  field,
+}: {
+  field: "explain" | "extendedGlyphs" | "threatLines";
+}) {
   const { t } = useTranslation();
   const [settings, setSettings] = useAtom(commentarySettingsAtom);
   return (

@@ -53,6 +53,7 @@ const keys: KeyMap = {
     TOGGLE_ALL_ENGINES: { name: "Toggle all engines", keys: "ctrl+a" },
     TOGGLE_BLUR: { name: "Toggle blur", keys: "ctrl+b" },
     GENERATE_REPORT: { name: "Generate game report", keys: "f12" },
+    EXPLAIN_POSITION: { name: "Explain current position", keys: "e" },
     PREVIOUS_GAME: { name: "Previous game", keys: "pageup" },
     NEXT_GAME: { name: "Next game", keys: "pagedown" },
 };

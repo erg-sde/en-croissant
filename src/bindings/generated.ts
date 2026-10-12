@@ -492,6 +492,14 @@ async testNarrator(config: NarratorConfig) : Promise<Result<NarrationFailure | n
     else return { status: "error", error: e  as any };
 }
 },
+async explainPosition(id: string, engine: string, goMode: GoMode, options: ExplainOptions, uciOptions: EngineOption[]) : Promise<Result<PositionExplanation, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("explain_position", { id, engine, goMode, options, uciOptions }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async setCommentarySecret(provider: ProviderKind, secret: string) : Promise<Result<null, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("set_commentary_secret", { provider, secret }) };
@@ -554,6 +562,10 @@ multipv?: number | null;
  * Compute `MoveAnalysis.facts` for every move after the engine pass.
  */
 withFacts?: boolean; 
+/**
+ * Search what the mover threatens after up to 12 good moves (needs `with_facts`).
+ */
+withThreats?: boolean; 
 /**
  * Seconds left on the mover's clock after each move, aligned to `moves`.
  */
@@ -685,6 +697,19 @@ export type Event = { id: number; name: string | null }
  * An exact evaluation (never a search bound) with the mover's win chance, 0 to 100.
  */
 export type ExactEval = { value: EvalValue; depth: number; win: number }
+export type ExplainOptions = { fen: string; 
+/**
+ * UCI moves from `fen` to the position to explain.
+ */
+moves: string[]; 
+/**
+ * Lines per position, clamped to 1..=5.
+ */
+multipv: number; withThreat: boolean; 
+/**
+ * Engine threads; 1 when unset.
+ */
+threads: number | null }
 /**
  * The families of facts a sentence can cite.
  */
@@ -951,6 +976,23 @@ export type PlayerGameInfo = { site_stats_data: SiteStatsData[] }
 export type PlayerQuery = { options: QueryOptions<PlayerSort>; name?: string | null; range?: [number, number] | null }
 export type PlayerSort = "id" | "name" | "elo"
 export type PlayersTime = { white: number; black: number; winc: number; binc: number }
+export type PositionExplanation = { 
+/**
+ * The parent position's lines (empty for the root).
+ */
+parentLines: BestMoves[]; 
+/**
+ * This position's lines (empty when it is game over).
+ */
+lines: BestMoves[]; 
+/**
+ * What the side that just moved threatens, when searched.
+ */
+threat: BestMoves | null; 
+/**
+ * The facts of the last move; `None` for the root or without an exact line.
+ */
+facts: MoveFacts | null }
 export type PositionQueryJs = { fen: string; type_: string }
 /**
  * The position a board reference is evaluated in: before the move, after it, or after `ply`

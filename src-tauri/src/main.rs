@@ -25,6 +25,7 @@ use std::sync::{Arc, Mutex};
 
 use chess::{BestMovesPayload, EngineProcess};
 use commentary::{
+    explain::explain_position,
     narrate::{narrate_game, test_narrator, NarrationChunk},
     secrets::{clear_commentary_secret, get_commentary_secret_status, set_commentary_secret},
 };
@@ -179,6 +180,7 @@ fn main() {
             get_sound_server_port,
             narrate_game,
             test_narrator,
+            explain_position,
             set_commentary_secret,
             clear_commentary_secret,
             get_commentary_secret_status
