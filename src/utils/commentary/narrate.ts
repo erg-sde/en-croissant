@@ -34,7 +34,15 @@ function playedMove(facts: MoveFacts): MoveRef {
 /** Plies before the first move of a line, counted like `TreeNode.halfMoves`. */
 function lineStartHalfMoves(facts: MoveFacts, line: LineFacts, ctx: SalienceContext): number {
     const beforeMove = ctx.rootHalfMoves + facts.index - 1;
-    return line.origin === "before" ? beforeMove : beforeMove + 1;
+    switch (line.origin) {
+        case "before":
+            return beforeMove;
+        case "after":
+            return beforeMove + 1;
+        case "threat":
+            // The mover moves again after the opponent's pass.
+            return beforeMove + 2;
+    }
 }
 
 function lineOutcomeKey(line: LineFacts): string {

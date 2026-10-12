@@ -1700,5 +1700,279 @@
     "terminal": false,
     "threat": null,
     "time": null
+  },
+  "threat": {
+    "after": {
+      "hanging": [
+        {
+          "kind": "hanging",
+          "piece": "pawn",
+          "see": -1,
+          "side": "black",
+          "square": "f7"
+        }
+      ],
+      "inCheck": false,
+      "kingZoneAttackers": {
+        "black": 2,
+        "white": 0
+      },
+      "material": {
+        "black": 39,
+        "white": 39
+      },
+      "openFiles": [],
+      "pawns": {
+        "black": {
+          "doubled": [],
+          "isolated": [],
+          "passed": []
+        },
+        "white": {
+          "doubled": [],
+          "isolated": [],
+          "passed": []
+        }
+      }
+    },
+    "before": {
+      "hanging": [],
+      "inCheck": false,
+      "kingZoneAttackers": {
+        "black": 1,
+        "white": 0
+      },
+      "material": {
+        "black": 39,
+        "white": 39
+      },
+      "openFiles": [],
+      "pawns": {
+        "black": {
+          "doubled": [],
+          "isolated": [],
+          "passed": []
+        },
+        "white": {
+          "doubled": [],
+          "isolated": [],
+          "passed": []
+        }
+      }
+    },
+    "best": null,
+    "criticality": [],
+    "delta": {
+      "kingZoneDelta": 1,
+      "materialChange": 0,
+      "newlyAttacked": [
+        {
+          "attacker": "bishop",
+          "defended": true,
+          "from": "c4",
+          "target": "pawn",
+          "to": "f7"
+        }
+      ],
+      "newlyHanging": []
+    },
+    "eval": {
+      "after": {
+        "depth": 20,
+        "value": {
+          "type": "cp",
+          "value": 40
+        },
+        "win": 53.675437927246094
+      },
+      "before": {
+        "depth": 20,
+        "value": {
+          "type": "cp",
+          "value": 40
+        },
+        "win": 53.675437927246094
+      },
+      "winDelta": 0.0
+    },
+    "fenAfter": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+    "fenBefore": "r1bqkbnr/pppp1ppp/2n5/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 2 3",
+    "index": 5,
+    "lines": [
+      {
+        "cutReason": "engineEnd",
+        "eval": {
+          "depth": 20,
+          "value": {
+            "type": "cp",
+            "value": 40
+          },
+          "win": 53.675437927246094
+        },
+        "id": 0,
+        "motifs": [
+          {
+            "absolute": false,
+            "attacker": "c4",
+            "behind": "g8",
+            "kind": "pin",
+            "pinned": "f7"
+          },
+          {
+            "from": "h5",
+            "kind": "mateThreat",
+            "to": "f7"
+          },
+          {
+            "absolute": false,
+            "attacker": "f3",
+            "behind": "f8",
+            "kind": "pin",
+            "pinned": "f7"
+          },
+          {
+            "from": "f3",
+            "kind": "mateThreat",
+            "to": "f7"
+          }
+        ],
+        "multipv": 1,
+        "origin": "before",
+        "outcome": {
+          "cp": 40,
+          "kind": "eval"
+        },
+        "pvSan": ["Bc4", "g6", "Qf3"],
+        "pvUci": ["f1c4", "g7g6", "h5f3"],
+        "shownPlies": 3
+      },
+      {
+        "cutReason": "engineEnd",
+        "eval": {
+          "depth": 20,
+          "value": {
+            "type": "cp",
+            "value": 5
+          },
+          "win": 50.460243225097656
+        },
+        "id": 1,
+        "motifs": [
+          {
+            "attacker": "b5",
+            "behind": "d7",
+            "front": "c6",
+            "kind": "skewer"
+          },
+          {
+            "attacker": "knight",
+            "from": "f6",
+            "isCheck": false,
+            "kind": "fork",
+            "targets": [
+              {
+                "piece": "pawn",
+                "square": "e4"
+              },
+              {
+                "piece": "queen",
+                "square": "h5"
+              }
+            ]
+          }
+        ],
+        "multipv": 2,
+        "origin": "before",
+        "outcome": {
+          "cp": 5,
+          "kind": "eval"
+        },
+        "pvSan": ["Bb5", "Nf6", "Qe2"],
+        "pvUci": ["f1b5", "g8f6", "h5e2"],
+        "shownPlies": 3
+      },
+      {
+        "cutReason": "engineEnd",
+        "eval": {
+          "depth": 20,
+          "value": {
+            "type": "cp",
+            "value": 40
+          },
+          "win": 53.675437927246094
+        },
+        "id": 2,
+        "motifs": [
+          {
+            "absolute": false,
+            "attacker": "f3",
+            "behind": "f8",
+            "kind": "pin",
+            "pinned": "f7"
+          },
+          {
+            "from": "f3",
+            "kind": "mateThreat",
+            "to": "f7"
+          }
+        ],
+        "multipv": 1,
+        "origin": "after",
+        "outcome": {
+          "cp": 40,
+          "kind": "eval"
+        },
+        "pvSan": ["g6", "Qf3", "Nf6"],
+        "pvUci": ["g7g6", "h5f3", "g8f6"],
+        "shownPlies": 3
+      },
+      {
+        "cutReason": "mate",
+        "eval": {
+          "depth": 20,
+          "value": {
+            "type": "mate",
+            "value": 1
+          },
+          "win": 97.54473876953125
+        },
+        "id": 3,
+        "motifs": [],
+        "multipv": 1,
+        "origin": "threat",
+        "outcome": {
+          "kind": "mate",
+          "mateIn": 1,
+          "pvReachesMate": true
+        },
+        "pvSan": ["Qxf7#"],
+        "pvUci": ["h5f7"],
+        "shownPlies": 1
+      }
+    ],
+    "mover": "white",
+    "novelty": false,
+    "opening": null,
+    "played": {
+      "captured": null,
+      "from": "f1",
+      "givesCheck": false,
+      "givesMate": false,
+      "isCapture": false,
+      "isCastle": false,
+      "piece": "bishop",
+      "promotion": null,
+      "rank": 1,
+      "san": "Bc4",
+      "see": null,
+      "to": "c4",
+      "uci": "f1c4"
+    },
+    "refutation": 2,
+    "schemaVersion": 1,
+    "second": 1,
+    "terminal": false,
+    "threat": 3,
+    "time": null
   }
 }

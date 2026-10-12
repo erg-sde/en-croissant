@@ -92,12 +92,24 @@ function sideAfter(first: Side, plies: number): Side {
 }
 
 /** The position a line starts from and the side that plays its first move. */
+/** `fen` with the turn passed to the other side and no en passant square (a null move). */
+function passTurn(fen: string): string {
+    const fields = fen.split(" ");
+    fields[1] = fields[1] === "w" ? "b" : "w";
+    if (fields.length > 3) fields[3] = "-";
+    return fields.join(" ");
+}
+
 function lineStart(facts: MoveFacts, line: LineFacts): { fen: string; first: Side } {
-    return line.origin === "before"
-        ? { fen: facts.fenBefore, first: facts.mover }
-        : line.origin === "after"
-          ? { fen: facts.fenAfter, first: otherSide(facts.mover) }
-          : { fen: facts.fenAfter, first: facts.mover };
+    switch (line.origin) {
+        case "before":
+            return { fen: facts.fenBefore, first: facts.mover };
+        case "after":
+            return { fen: facts.fenAfter, first: otherSide(facts.mover) };
+        case "threat":
+            // The mover's threat is searched with the turn passed back to them.
+            return { fen: passTurn(facts.fenAfter), first: facts.mover };
+    }
 }
 
 /** The positions of a line: index `k` is the position after `k` plies. */

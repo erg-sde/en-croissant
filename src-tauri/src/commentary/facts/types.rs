@@ -123,7 +123,6 @@ pub enum LineOrigin {
     /// The position after the move (the opponent's best reply).
     After,
     /// The position after the move with the turn passed back (what the mover threatens).
-    #[allow(dead_code)] // Produced by the threat search (slice 10).
     Threat,
 }
 

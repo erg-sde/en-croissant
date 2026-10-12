@@ -16,6 +16,7 @@ const GLYPHS: Record<FixtureName, Annotation | null> = {
     sacrifice: "!!",
     missedPunishment: "?",
     openingNovelty: null,
+    threat: "!",
 };
 const NAMES = Object.keys(GLYPHS) as FixtureName[];
 
