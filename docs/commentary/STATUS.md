@@ -92,8 +92,8 @@ For the owner:
 5. The PR descriptions say which UI paths were not clicked through in the running app this session
    (slice 8's card, modal options and settings rows); a manual pass before merging slice 8 is
    advised.
-6. Slice 12: review the consent modal's text, and choose the default model (prefilled
-   `claude-opus-5-5`; a cheaper model may be enough for rephrasing).
+6. Slice 12: choose the default model (prefilled `claude-opus-5-5`; a cheaper model may be enough
+   for rephrasing). The consent modal's text was approved by the owner on 2026-10-11.
 
 For upstream (to record under "Questions for upstream" in `DEVIATIONS.md` when the first slice is
 proposed): whether a discussion should precede the slice PRs (CONTRIBUTING.md asks for one; PLAN.md
