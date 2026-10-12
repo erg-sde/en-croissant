@@ -26,8 +26,9 @@ use vampirc_uci::{
 use crate::{
     commentary::facts::{
         extract_move_facts,
+        threats::{mate_threats, null_move_fen},
         time::{time_facts, Clocks},
-        EvalFacts, FactsContext, MoveFacts,
+        Criticality, FactsContext, MoveFacts,
     },
     db::{is_position_in_db, GameQuery, PositionQueryJs},
     engine::{
@@ -54,7 +55,7 @@ pub struct EngineProcess {
 }
 
 impl EngineProcess {
-    async fn new(path: PathBuf) -> Result<(Self, EngineReader), Error> {
+    pub(crate) async fn new(path: PathBuf) -> Result<(Self, EngineReader), Error> {
         let mut base = BaseEngine::spawn(path).await?;
         base.init_uci().await?;
         let reader = base.take_reader().ok_or(Error::EngineDisconnected)?;
@@ -83,7 +84,7 @@ impl EngineProcess {
         self.base.set_option(name, value).await
     }
 
-    async fn set_options(&mut self, options: EngineOptions) -> Result<(), Error> {
+    pub(crate) async fn set_options(&mut self, options: EngineOptions) -> Result<(), Error> {
         let fen_changed = options.fen != self.options.fen;
         let fen: Fen = options.fen.parse()?;
         let setup = fen.as_setup();
@@ -130,7 +131,7 @@ impl EngineProcess {
         Ok(())
     }
 
-    async fn go(&mut self, mode: &GoMode) -> Result<(), Error> {
+    pub(crate) async fn go(&mut self, mode: &GoMode) -> Result<(), Error> {
         self.go_mode = mode.clone();
         self.base.go(mode).await?;
         self.running = true;
@@ -138,13 +139,13 @@ impl EngineProcess {
         Ok(())
     }
 
-    async fn stop(&mut self) -> Result<(), Error> {
+    pub(crate) async fn stop(&mut self) -> Result<(), Error> {
         self.base.stop().await?;
         self.running = false;
         Ok(())
     }
 
-    async fn kill(&mut self) -> Result<(), Error> {
+    pub(crate) async fn kill(&mut self) -> Result<(), Error> {
         self.base.quit().await?;
         self.running = false;
         Ok(())
@@ -505,6 +506,9 @@ pub struct AnalysisOptions {
     /// Compute `MoveAnalysis.facts` for every move after the engine pass.
     #[serde(default)]
     pub with_facts: bool,
+    /// Search what the mover threatens after up to 12 good moves (needs `with_facts`).
+    #[serde(default)]
+    pub with_threats: bool,
     /// Seconds left on the mover's clock after each move, aligned to `moves`.
     #[serde(default)]
     pub clocks: Option<Vec<Option<f32>>>,
@@ -626,7 +630,7 @@ const STOP_GRACE: Duration = Duration::from_secs(2);
 ///
 /// Cancellation is observed inside the read loop: the engine is told to `stop`, its output is
 /// drained up to `bestmove`, and the search returns `Error::AnalysisCancelled`.
-async fn search_once(
+pub(crate) async fn search_once(
     proc: &mut EngineProcess,
     reader: &mut EngineReader,
     go_mode: &GoMode,
@@ -806,34 +810,105 @@ pub async fn analyze_game(
             increment_s: options.increment_s,
             initial_s: options.initial_s,
         };
-        let mut prev: Option<EvalFacts> = None;
-        for i in 1..analysis.len() {
-            if is_cancelled(&cancel) {
-                guard.cancelled()?;
-                return Err(Error::AnalysisCancelled);
-            }
-            let Some(mv) = &positions[i].last_move else {
-                continue;
-            };
-            let facts = extract_move_facts(&FactsContext {
+        let facts_at = |analysis: &[MoveAnalysis], i: usize, threat: Option<&BestMoves>| {
+            let mv = positions[i].last_move.as_ref()?;
+            extract_move_facts(&FactsContext {
                 index: i as u32,
                 before: &positions[i - 1].position,
                 mv,
                 parent_lines: &analysis[i - 1].best,
                 own_lines: &analysis[i].best,
                 opening: opening.as_ref(),
-                prev: prev.as_ref(),
+                prev: analysis[i - 1].facts.as_ref().map(|f| &f.eval),
                 time: time_facts(&clocks, i - 1),
                 terminal: positions[i].terminal,
                 novelty: analysis[i].novelty,
+                threat_line: threat,
+            })
+        };
+        for i in 1..analysis.len() {
+            if is_cancelled(&cancel) {
+                guard.cancelled()?;
+                return Err(Error::AnalysisCancelled);
+            }
+            analysis[i].facts = facts_at(&analysis, i, None);
+        }
+
+        if options.with_threats {
+            let mut threat_options: Vec<EngineOption> = extra_options
+                .iter()
+                .filter(|x| x.name != "MultiPV")
+                .cloned()
+                .collect();
+            threat_options.push(EngineOption {
+                name: "MultiPV".to_string(),
+                value: "1".to_string(),
             });
-            prev = facts.as_ref().map(|f| f.eval.clone());
-            analysis[i].facts = facts;
+            for i in threat_candidates(&analysis, &positions) {
+                let Some(fen) = null_move_fen(&positions[i].position) else {
+                    continue;
+                };
+                proc.set_options(EngineOptions {
+                    fen,
+                    moves: vec![],
+                    extra_options: threat_options.clone(),
+                })
+                .await?;
+                match search_once(&mut proc, &mut reader, &go_mode, &mut cancel).await {
+                    Ok(best) => {
+                        if let Some(line) = best.first() {
+                            analysis[i].facts = facts_at(&analysis, i, Some(line));
+                        }
+                    }
+                    Err(Error::AnalysisCancelled) => {
+                        if let Err(e) = proc.kill().await {
+                            warn!("Failed to stop the analysis engine: {:?}", e);
+                        }
+                        guard.cancelled()?;
+                        return Err(Error::AnalysisCancelled);
+                    }
+                    Err(e) => return Err(e),
+                }
+            }
         }
     }
 
     guard.finished()?;
     Ok(analysis)
+}
+
+/// Threat lines searched per report at most.
+const MAX_THREAT_LINES: usize = 12;
+
+/// The moves whose threat is worth searching: those where the mover's idea is the point (an only or
+/// clearly best move, a found mate, a sacrifice, a missed chance taken, or a mate threat), never a
+/// move that lost five points of win chance or more, where the opponent's reply is what matters.
+/// Best moves first, at most `MAX_THREAT_LINES`.
+fn threat_candidates(analysis: &[MoveAnalysis], positions: &[ReportPosition]) -> Vec<usize> {
+    let mut picks: Vec<(usize, f32)> = analysis
+        .iter()
+        .enumerate()
+        .filter_map(|(i, entry)| {
+            let facts = entry.facts.as_ref()?;
+            if facts.terminal || facts.eval.win_delta.is_some_and(|d| d >= 5.0) {
+                return None;
+            }
+            let idea = facts.criticality.iter().any(|c| {
+                matches!(
+                    c,
+                    Criticality::OnlyMove { .. }
+                        | Criticality::ClearlyBest { .. }
+                        | Criticality::MateFound { .. }
+                        | Criticality::Sacrifice { .. }
+                        | Criticality::Miss { .. }
+                )
+            }) || !mate_threats(&positions[i].position).is_empty();
+            idea.then(|| (i, facts.eval.win_delta.unwrap_or(0.0)))
+        })
+        .collect();
+    picks.sort_by(|a, b| a.1.total_cmp(&b.1));
+    picks.truncate(MAX_THREAT_LINES);
+    picks.into_iter().map(|(i, _)| i).collect()
 }
 
 fn count_material(position: &Chess) -> i32 {
@@ -1225,6 +1300,7 @@ mod tests {
                 time: None,
                 terminal: positions[i].terminal,
                 novelty: false,
+                threat_line: None,
             })
             .unwrap()
         };

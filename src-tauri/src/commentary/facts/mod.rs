@@ -50,6 +50,9 @@ pub struct FactsContext<'a> {
     pub time: Option<TimeFacts>,
     pub terminal: bool,
     pub novelty: bool,
+    /// What the mover threatens: the exact best line of the position after the move with the turn
+    /// passed back, when it was searched.
+    pub threat_line: Option<&'a BestMoves>,
 }
 
 fn uci_of(mv: &Move) -> String {
@@ -131,6 +134,15 @@ pub fn extract_move_facts(ctx: &FactsContext) -> Option<MoveFacts> {
         _ => None,
     };
 
+    let threat = match (ctx.threat_line, threats::null_move(&after)) {
+        (Some(line), Some(passed)) if !ctx.terminal => {
+            let id = clamp_u8(lines.len());
+            lines.push(line_facts(id, LineOrigin::Threat, line, &passed, mover));
+            Some(id)
+        }
+        _ => None,
+    };
+
     let rank = played_rank(ctx);
     let before_board = board_facts(ctx.before);
     let after_board = board_facts(&after);
@@ -164,7 +176,7 @@ pub fn extract_move_facts(ctx: &FactsContext) -> Option<MoveFacts> {
         best: (rank != Some(1) && parent_count > 0).then_some(0),
         second: (parent_count >= 2).then_some(1),
         refutation,
-        threat: None,
+        threat,
         lines,
         criticality,
         before: before_board,
@@ -213,6 +225,7 @@ mod tests {
             time: None,
             terminal: false,
             novelty: false,
+            threat_line: None,
         })
         .unwrap();
 
@@ -254,6 +267,7 @@ mod tests {
             time: None,
             terminal: true,
             novelty: false,
+            threat_line: None,
         })
         .unwrap();
         assert!(facts.terminal && facts.played.gives_mate);
@@ -262,6 +276,43 @@ mod tests {
         assert_eq!(facts.refutation, None);
         assert_eq!(facts.played.rank, Some(1));
         assert_eq!(facts.best, None);
+    }
+
+    #[test]
+    fn a_searched_threat_becomes_a_threat_line() {
+        // 3. Bc4 threatens Qxf7#.
+        let before = pos("r1bqkbnr/pppp1ppp/2n5/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 2 3");
+        let mv = uci(&before, "f1c4");
+        let mut after = before.clone();
+        after.play_unchecked(&mv);
+        let passed = threats::null_move(&after).unwrap();
+        let parent = [line(&before, "f1c4 g7g6", EvalValue::Cp(40))];
+        let own = [line(&after, "g7g6 h5f3", EvalValue::Cp(40))];
+        let threat = line(&passed, "h5f7", EvalValue::Mate(1));
+        let facts = extract_move_facts(&FactsContext {
+            index: 5,
+            before: &before,
+            mv: &mv,
+            parent_lines: &parent,
+            own_lines: &own,
+            opening: None,
+            prev: None,
+            time: None,
+            terminal: false,
+            novelty: false,
+            threat_line: Some(&threat),
+        })
+        .unwrap();
+        let id = facts.threat.expect("a threat line") as usize;
+        assert_eq!(facts.lines[id].origin, LineOrigin::Threat);
+        assert_eq!(facts.lines[id].pv_san, ["Qxf7#"]);
+        assert_eq!(
+            facts.lines[id].outcome,
+            LineOutcome::Mate {
+                mate_in: 1,
+                pv_reaches_mate: true,
+            }
+        );
     }
 
     #[test]
@@ -279,6 +330,7 @@ mod tests {
             time: None,
             terminal: false,
             novelty: false,
+            threat_line: None,
         });
         assert!(facts.is_none());
     }
@@ -294,6 +346,8 @@ mod tests {
             played: &'a str,
             parent: &'a [(&'a str, EvalValue)],
             own: Option<(&'a str, EvalValue)>,
+            /// The mover's threat, searched from the position after the move with the turn passed.
+            threat: Option<(&'a str, EvalValue)>,
             index: u32,
             prev: Option<(EvalValue, EvalValue, Color)>,
             novelty: bool,
@@ -315,6 +369,7 @@ mod tests {
                 novelty: false,
                 time: None,
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "checkmate",
@@ -330,6 +385,7 @@ mod tests {
                 novelty: false,
                 time: None,
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "queenLost",
@@ -349,6 +405,7 @@ mod tests {
                     under_pressure: true,
                 }),
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "onlyMove",
@@ -364,6 +421,7 @@ mod tests {
                 novelty: false,
                 time: None,
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "clearlyBest",
@@ -379,6 +437,7 @@ mod tests {
                 novelty: false,
                 time: None,
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "sacrifice",
@@ -394,6 +453,7 @@ mod tests {
                 novelty: false,
                 time: None,
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "missedPunishment",
@@ -409,6 +469,7 @@ mod tests {
                 novelty: false,
                 time: None,
                 opening: None,
+                threat: None,
             },
             Case {
                 name: "openingNovelty",
@@ -424,6 +485,23 @@ mod tests {
                 novelty: true,
                 time: None,
                 opening: Some(("E20", "Nimzo-Indian Defense")),
+                threat: None,
+            },
+            Case {
+                name: "threat",
+                fen: "r1bqkbnr/pppp1ppp/2n5/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 2 3",
+                played: "f1c4",
+                parent: &[
+                    ("f1c4 g7g6 h5f3", EvalValue::Cp(40)),
+                    ("f1b5 g8f6 h5e2", EvalValue::Cp(5)),
+                ],
+                own: Some(("g7g6 h5f3 g8f6", EvalValue::Cp(40))),
+                index: 5,
+                prev: None,
+                novelty: false,
+                time: None,
+                opening: None,
+                threat: Some(("h5f7", EvalValue::Mate(1))),
             },
         ];
 
@@ -444,6 +522,9 @@ mod tests {
                 })
                 .collect();
             let own: Vec<BestMoves> = case.own.iter().map(|(u, v)| line(&after, u, *v)).collect();
+            let threat = case
+                .threat
+                .map(|(u, v)| line(&threats::null_move(&after).unwrap(), u, v));
             let prev = case.prev.map(|(b, a, mover)| {
                 let ev = |v: EvalValue| {
                     ExactEval::from_line(
@@ -475,6 +556,7 @@ mod tests {
                 time: case.time,
                 terminal: after.is_game_over(),
                 novelty: case.novelty,
+                threat_line: threat.as_ref(),
             })
             .unwrap();
             out.insert(case.name.into(), serde_json::to_value(facts).unwrap());
@@ -565,6 +647,7 @@ mod tests {
                 time: None,
                 terminal: positions[i].is_game_over(),
                 novelty: false,
+                threat_line: None,
             });
             prev = facts.as_ref().map(|f| f.eval.clone());
             game_moves.push(serde_json::to_value(facts).unwrap());
