@@ -114,8 +114,16 @@ async fn close_splashscreen(window: Window) -> Result<(), String> {
     Ok(())
 }
 
-fn main() {
-    let specta_builder = tauri_specta::Builder::new()
+/// Where the debug build writes the TypeScript bindings, relative to `src-tauri`.
+const BINDINGS_PATH: &str = "../src/bindings/generated.ts";
+
+fn bindings_exporter() -> Typescript {
+    Typescript::default().bigint(BigIntExportBehavior::BigInt)
+}
+
+/// Every command, event and extra type the frontend sees.
+fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::new()
         .commands(tauri_specta::collect_commands!(
             close_splashscreen,
             get_best_moves,
@@ -203,14 +211,15 @@ fn main() {
         .constant(
             "FACTS_SCHEMA_VERSION",
             commentary::facts::FACTS_SCHEMA_VERSION,
-        );
+        )
+}
+
+fn main() {
+    let specta_builder = specta_builder();
 
     #[cfg(debug_assertions)]
     specta_builder
-        .export(
-            Typescript::default().bigint(BigIntExportBehavior::BigInt),
-            "../src/bindings/generated.ts",
-        )
+        .export(bindings_exporter(), BINDINGS_PATH)
         .expect("Failed to export types");
 
     #[cfg(debug_assertions)]
@@ -300,4 +309,27 @@ fn is_bmi2_compatible() -> bool {
 fn memory_size() -> u32 {
     let total_bytes = sysinfo::System::new_all().total_memory();
     (total_bytes / 1024 / 1024) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The committed bindings match what the debug build would write, so a Rust type change
+    /// without regenerated bindings fails `cargo test`.
+    #[test]
+    fn bindings_are_up_to_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("generated.ts");
+        specta_builder()
+            .export(bindings_exporter(), &path)
+            .expect("Failed to export types");
+        let normalize = |text: String| text.replace("\r\n", "\n");
+        let fresh = normalize(std::fs::read_to_string(&path).unwrap());
+        let committed = normalize(std::fs::read_to_string(BINDINGS_PATH).unwrap());
+        assert!(
+            fresh == committed,
+            "src/bindings/generated.ts is stale; run `pnpm dev` once to regenerate it"
+        );
+    }
 }
