@@ -17,7 +17,7 @@ function NarrationStatus({
   narration: NarrationState | undefined;
   onCancel: () => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [showDetail, setShowDetail] = useState(false);
   if (!narration) return null;
 
@@ -36,7 +36,7 @@ function NarrationStatus({
   }
   if (narration.status !== "failed") return null;
 
-  const translate: Translate = (key, options) => String(i18n.t(key, options));
+  const translate = t as unknown as Translate;
   const message = narration.failure
     ? narrationFailureMessage(narration.failure, translate)
     : { title: t("Errors.Unknown"), detail: null };
