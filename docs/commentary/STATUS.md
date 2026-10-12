@@ -19,23 +19,37 @@ also lists the commits of the slices below it until those merge.
 | 7a | Facts: geometry and motifs | `commentary/07a-facts-geometry-motifs` | https://github.com/erg-sde/en-croissant/pull/8 |
 | 7b | Facts: lines, criticality, structure, time, extraction | `commentary/07b-facts-lines-extraction` | https://github.com/erg-sde/en-croissant/pull/9 |
 | 8 | Deterministic move explanations | `commentary/08-deterministic-commentary` | https://github.com/erg-sde/en-croissant/pull/10 |
+| 9 | Game narrative, takeaways and key moments | `commentary/09-game-narrative` | https://github.com/erg-sde/en-croissant/pull/11 |
+| 12 | Optional LLM narration, validated | `commentary/12-llm-narration` | https://github.com/erg-sde/en-croissant/pull/12 |
 
 Each PR description states its slice, what it changes, the invariant rows it establishes, how it was
 tested and what is deferred. Departures from `PLAN.md` are in `DEVIATIONS.md`, slice by slice.
 
 ## Slices in progress
 
-None. The next slice is 9 (game narrative: `gameFacts.ts`, `narrateGame`, takeaways,
-`GameNarrative.tsx`, `report.narrative`), branched from `commentary/08-deterministic-commentary`.
-Slice 12 (LLM narration) is not to be started without the owner: it needs an Anthropic key and a
-consent review.
+None. Slice 12 was done before 10 and 11 at the owner's request (it stacks on 9). Next: 10 (explain
+position, threat lines) and 11 (export commentary to PGN), stacked on 12.
+
+## Trying narration (slice 12)
+
+1. `git switch commentary/12-llm-narration`, `pnpm dev`.
+2. Settings ▸ Commentary ▸ "Narrate with a language model": read and accept the consent modal.
+3. In "Language model", keep Anthropic and `claude-opus-5-5`, paste the key into "API key", press
+   Save (the key goes to `<app data>/commentary/secrets.json` and is never shown again), then
+   "Test connection". For a local server instead: provider "OpenAI-compatible server", server
+   address `http://localhost:11434` (Ollama), the model name, no key.
+4. Open a game, Generate report with "Explain moves" and "Narrate with …" ticked. The offline
+   commentary appears first; narrated sentences replace it move by move as chunks arrive. A failure
+   shows an orange alert in the report panel and keeps the offline text.
+
+Not yet verified against the live API (no key in the session); "Test connection" is the first check.
 
 ## Tests added
 
 | Suite | Baseline | Now | Added |
 |---|---|---|---|
-| `pnpm test` (vitest) | 40 | 106 | 66 |
-| `cargo test` | 52 (44 pass, 8 fail) | 115 (107 pass with the ignored tests, 8 fail) | 63 |
+| `pnpm test` (vitest) | 40 | 124 | 84 |
+| `cargo test` | 52 (44 pass, 8 fail) | 138 (125 pass, 8 fail, 5 ignored) | 86 |
 
 The 8 failing Rust tests fail on the untouched baseline (`chess::tests::eval_*`,
 `db::search::tests::get_move_after_exact_match_test`); upstream CI runs no cargo step. No slice adds
@@ -73,6 +87,8 @@ For the owner:
 5. The PR descriptions say which UI paths were not clicked through in the running app this session
    (slice 8's card, modal options and settings rows); a manual pass before merging slice 8 is
    advised.
+6. Slice 12: review the consent modal's text, and choose the default model (prefilled
+   `claude-opus-5-5`; a cheaper model may be enough for rephrasing).
 
 For upstream (to record under "Questions for upstream" in `DEVIATIONS.md` when the first slice is
 proposed): whether a discussion should precede the slice PRs (CONTRIBUTING.md asks for one; PLAN.md
@@ -84,7 +100,7 @@ section 13 drafts it).
 git clone git@github.com:erg-sde/en-croissant.git && cd en-croissant
 git remote add upstream https://github.com/franciscoBSalgueiro/en-croissant.git
 git config core.autocrlf false && git config core.eol lf
-git switch commentary/08-deterministic-commentary
+git switch commentary/12-llm-narration
 pnpm i --frozen-lockfile
 pnpm lint:ci && pnpm test
 ```
@@ -98,8 +114,8 @@ $env:EC_TEST_ENGINE = "<path to stockfish>"; cargo test -- --include-ignored --s
 cargo clippy --all-targets -- -D warnings
 ```
 
-Start slice 9:
+Start slice 10:
 
 ```bash
-git switch -c commentary/09-game-narrative commentary/08-deterministic-commentary
+git switch -c commentary/10-explain-position commentary/12-llm-narration
 ```
