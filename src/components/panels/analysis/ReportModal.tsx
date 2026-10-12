@@ -211,6 +211,7 @@ function ReportModal({
           reversed: form.values.reversed,
           moves,
           withFacts: explain,
+          withThreats: explain && commentarySettings.threatLines,
           clocks: snapshot.plies.slice(1).map((ply) => ply.clock ?? null),
           incrementS: snapshot.incrementS,
           initialS: snapshot.initialS,
@@ -360,6 +361,20 @@ function ReportModal({
                   });
                 }
               }}
+            />
+          )}
+
+          {commentarySettings.explain && (
+            <Checkbox
+              label={t("Settings.Commentary.ThreatLines")}
+              description={t("Settings.Commentary.ThreatLines.Desc")}
+              checked={commentarySettings.threatLines}
+              onChange={(event) =>
+                setCommentarySettings({
+                  ...commentarySettings,
+                  threatLines: event.currentTarget.checked,
+                })
+              }
             />
           )}
 

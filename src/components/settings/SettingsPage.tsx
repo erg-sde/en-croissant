@@ -650,6 +650,14 @@ export default function Page() {
         render: () => <CommentarySwitch field="extendedGlyphs" />,
       },
       {
+        id: "commentary-threat-lines",
+        category: "commentary",
+        title: t("Settings.Commentary.ThreatLines"),
+        description: t("Settings.Commentary.ThreatLines.Desc"),
+        keywords: ["commentary", "threat", "null move", "report"],
+        render: () => <CommentarySwitch field="threatLines" />,
+      },
+      {
         id: "commentary-perspective",
         category: "commentary",
         title: t("Settings.Commentary.Perspective"),

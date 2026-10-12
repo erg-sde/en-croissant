@@ -1,3 +1,4 @@
+import type { Color } from "chessops";
 import type { BestMoves, MoveFacts } from "@/bindings";
 import type { Annotation } from "@/utils/annotation";
 import { getAnnotation } from "@/utils/score";
@@ -82,4 +83,29 @@ export function getExtendedAnnotation(
         extended.push("⊕");
     }
     return extended;
+}
+
+/**
+ * The glyph of one explained move, from the parent's and its own exact lines, with the same
+ * thresholds as the report. `null` when the move ended the game or nothing was searched after it.
+ */
+export function explainGlyph(
+    parentLines: BestMoves[],
+    lines: BestMoves[],
+    mover: Color,
+    san: string,
+): Annotation | null {
+    if (lines.length === 0 || parentLines.length === 0) {
+        return null;
+    }
+    const annotation = getAnnotation(
+        null,
+        parentLines[0].score.value,
+        lines[0].score.value,
+        mover,
+        parentLines,
+        false,
+        san,
+    );
+    return annotation === "" ? null : annotation;
 }

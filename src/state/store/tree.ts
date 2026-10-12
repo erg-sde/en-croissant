@@ -88,6 +88,8 @@ export interface TreeStoreState extends TreeState {
         narrative?: GameNarrative | null,
     ) => void;
     appendComment: (path: number[], text: string) => void;
+    /** Stores an on-demand explanation on the node at `path` (any line, not only the mainline). */
+    keepCommentary: (path: number[], fenBefore: string, commentary: MoveCommentary) => void;
     /**
      * Replaces the commentary of mainline moves with narrated records. A record is written only
      * while `runId` is the report's run and the node at its index is still the move it was written
@@ -591,6 +593,19 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                 produce((state: Draft<TreeStoreState>) => {
                     if (state.report.runId === runId) {
                         state.report.narration = narration;
+                    }
+                }),
+            ),
+
+        keepCommentary: (path, fenBefore, commentary) =>
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (path.length === 0) return;
+                    const parent = getNodeAtPath(state.root, path.slice(0, -1));
+                    const node = getNodeAtPath(state.root, path);
+                    if (node && parent && node !== parent && samePosition(parent.fen, fenBefore)) {
+                        node.commentary = commentary;
+                        state.dirty = true;
                     }
                 }),
             ),

@@ -57,10 +57,16 @@ function CommentaryCard({
             <Badge variant="light" size="sm">
               {t(`Commentary.Card.Perspective.${commentary.perspective}`)}
             </Badge>
-            {commentary.provenance.source === "deterministic" && (
+            {commentary.provenance.source === "deterministic" ? (
               <Badge variant="outline" size="sm">
                 {t("Commentary.Card.Offline")}
               </Badge>
+            ) : (
+              commentary.provenance.model && (
+                <Badge variant="outline" size="sm" tt="none">
+                  {commentary.provenance.model}
+                </Badge>
+              )
             )}
           </Group>
         </Group>
