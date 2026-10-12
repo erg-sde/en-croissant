@@ -20,6 +20,7 @@ import { type Position, positionSchema } from "@/components/files/opening";
 import type { LocalOptions } from "@/components/panels/database/DatabasePanel";
 import { positionFromFen, swapMove } from "@/utils/chessops";
 import {
+    COMMENTARY_SETTINGS_KEY,
     type CommentarySettings,
     commentarySettingsSchema,
     defaultCommentarySettings,
@@ -248,7 +249,7 @@ export const referenceDbAtom = atomWithStorage<string | null>("reference-databas
 // Commentary
 
 export const commentarySettingsAtom = atomWithStorage<CommentarySettings>(
-    "commentary-settings",
+    COMMENTARY_SETTINGS_KEY,
     defaultCommentarySettings,
     createZodStorage(commentarySettingsSchema, localStorage),
     { getOnInit: true },

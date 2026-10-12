@@ -11,6 +11,8 @@ import { ANNOTATION_INFO, type Annotation } from "@/utils/annotation";
 import { getPGN } from "@/utils/chess";
 import { parseSanOrUci, positionFromFen } from "@/utils/chessops";
 import type { MoveCommentaryResult } from "@/utils/commentary/report";
+import { commentaryForExport, withAnnotator } from "@/utils/commentary/export";
+import { readCommentarySettings } from "@/utils/commentary/settings";
 import type { GameNarrative, MoveCommentary } from "@/utils/commentary/types";
 import { type MainlineSnapshot, samePosition } from "@/utils/commentary/snapshot";
 import { isPrefix } from "@/utils/misc";
@@ -448,13 +450,15 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
             navigator.clipboard.writeText(pgn);
         },
         copyPgn: () => {
-            const { root, headers } = get();
+            const { root, headers, report } = get();
+            const exported = readCommentarySettings(localStorage).exportToPgn;
             const pgn = getPGN(root, {
-                headers,
+                headers: exported ? withAnnotator(headers, root, report) : headers,
                 comments: true,
                 extraMarkups: true,
                 glyphs: true,
                 variations: true,
+                commentary: exported ? commentaryForExport(root, report) : null,
             });
             navigator.clipboard.writeText(pgn);
         },

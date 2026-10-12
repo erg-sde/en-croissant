@@ -688,6 +688,8 @@
     "Settings.Commentary.Detail.Mistakes": "Mistakes only",
     "Settings.Commentary.Explain": "Explain moves",
     "Settings.Commentary.Explain.Desc": "Offline and deterministic: every sentence is checked against the board",
+    "Settings.Commentary.ExportToPgn": "Export commentary to PGN",
+    "Settings.Commentary.ExportToPgn.Desc": "Write generated commentary into saved and copied PGN as ordinary comments. It is not read back as commentary.",
     "Settings.Commentary.ExtendedGlyphs": "Extended glyphs",
     "Settings.Commentary.ExtendedGlyphs.Desc": "Mark decisive only moves (□), missed chances (⊗) and mistakes in time trouble (⊕)",
     "Settings.Commentary.Key": "API key",

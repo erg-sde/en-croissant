@@ -6,7 +6,9 @@ import { isPawns, parseComment } from "chessops/pgn";
 import { makeSan, parseSan } from "chessops/san";
 import { commands, type OpeningMatch, type Outcome, type Score, type Token } from "@/bindings";
 import { ANNOTATION_INFO, isBasicAnnotation, NAG_INFO } from "./annotation";
+import type { CommentaryText } from "./commentary/export";
 import { toPgnSafe } from "./commentary/pgnSafe";
+import type { PgnSafeText } from "./commentary/types";
 import { parseSanOrUci, positionFromFen } from "./chessops";
 import { harmonicMean, isPrefix, mean } from "./misc";
 import { formatScore, getAccuracy, getCPLoss, INITIAL_SCORE } from "./score";
@@ -53,6 +55,8 @@ export function getMoveText(
         comments: boolean;
         extraMarkups: boolean;
         isFirst?: boolean;
+        /** Generated commentary, written after the user's comment. */
+        commentary?: PgnSafeText | null;
     },
 ): string {
     const isBlack = tree.halfMoves % 2 === 0;
@@ -79,7 +83,7 @@ export function getMoveText(
         moveText += " ";
     }
 
-    if (opt.comments || opt.extraMarkups) {
+    if (opt.comments || opt.extraMarkups || opt.commentary) {
         let content = "{";
 
         if (opt.extraMarkups) {
@@ -117,6 +121,10 @@ export function getMoveText(
 
         if (opt.comments && tree.comment !== "") {
             content += toPgnSafe(tree.comment);
+        }
+        if (opt.commentary) {
+            content += content.endsWith("{") || content.endsWith(" ") ? "" : " ";
+            content += opt.commentary;
         }
         content += "} ";
 
@@ -226,6 +234,7 @@ export function getPGN(
         extraMarkups,
         root = true,
         path = null,
+        commentary = null,
     }: {
         headers: GameHeaders | null;
         glyphs: boolean;
@@ -234,6 +243,8 @@ export function getPGN(
         extraMarkups: boolean;
         root?: boolean;
         path?: number[] | null;
+        /** Generated commentary per node to export, or `null` to export none. */
+        commentary?: CommentaryText | null;
     },
 ): string {
     if (path && path.length === 0) {
@@ -253,6 +264,7 @@ export function getPGN(
             glyphs,
             comments,
             extraMarkups,
+            commentary: commentary?.(tree),
         })}`;
     }
     const variationsPGN = variations
@@ -263,6 +275,7 @@ export function getPGN(
                       comments,
                       extraMarkups,
                       isFirst: true,
+                      commentary: commentary?.(variation),
                   })} ${getPGN(variation, {
                       headers: null,
                       glyphs,
@@ -271,6 +284,7 @@ export function getPGN(
                       extraMarkups,
                       root: false,
                       path: null,
+                      commentary,
                   })}`,
           )
         : [];
@@ -281,6 +295,7 @@ export function getPGN(
             comments,
             extraMarkups,
             isFirst: root,
+            commentary: commentary?.(child),
         });
     }
     if (!path) {
@@ -298,6 +313,7 @@ export function getPGN(
             extraMarkups,
             root: false,
             path: path ? path.slice(1) : null,
+            commentary,
         });
     }
     if (root && headers) {
