@@ -8,6 +8,7 @@ use super::{
     facts::{CommentaryKind, FactKind, FactVocabulary, MoveRef, Perspective, PositionRef, Side},
     narrate::{NarrationFact, NarrationGame, NarrationItem, NarrationRequest},
     provider::NarratorConfig,
+    wire::{cited_id, refs_of},
 };
 
 pub const SYSTEM_PROMPT: &str = r#"You turn verified chess facts into short coaching sentences for a game report. Each fact comes with a draft sentence that is already correct. Rephrase and connect the drafts into natural prose; never add information.
@@ -20,12 +21,12 @@ Rules:
 5. Never invent a number.
 
 How to write a sentence:
-- Write a template. Every move, piece, square, number and side comes from a slot, written as a placeholder: {{m0}} {{m1}} are slots.moves[0] and [1], {{p0}} {{p1}} are slots.pieces[0] and [1] (rendered as "the knight on f3"), {{s0}} {{s1}} are slots.squares[0] and [1], {{n0}} {{n1}} are slots.numbers[0] and [1], {{side}} is slots.side, and {{pieces}} is the list slots.pieceList. Never write a square, a move, a piece name or a digit as literal text.
-- Fill each slot you use with a value copied exactly from the vocabulary of a fact the sentence cites, and use every slot you fill. Leave unused arrays empty and set "side" to "none" when unused. Positions are {"t", "id", "ply"}: copy "t" from the vocabulary, and for "before" and "after" set "id" and "ply" to 0.
+- Write a template. Every move, piece, square and number comes from a slot, written as a placeholder: {{m0}} {{m1}} are slots.moves[0] and [1], {{p0}} {{p1}} are slots.pieces[0] and [1] (rendered as "the knight on f3"), {{s0}} {{s1}} are slots.squares[0] and [1], {{n0}} {{n1}} are slots.numbers[0] and [1], {{side}} is slots.side ("White"/"Black"), and {{pieces}} is the list slots.pieceList. Never write a square, a move, a piece name or a digit as literal text.
+- Slots hold refs, never values. Each fact lists its refs, for example "line:2/moves/1" for the second move of fact line:2, with the value it stands for. Use only refs of facts the sentence cites, put moves refs in "moves", pieces refs in "pieces" and "pieceList", and so on, and use every slot you fill. Leave unused arrays empty and set "side" to "none" when unused.
 - Every relation you state must be declared as a claim: attacks, forks, pins, hanging (is undefended and can be taken), winsMaterial, mates, better, threatens. A sentence with no relation has no claims. Each claim has every field; the kind decides which count:
-  - attacks: pieces = [attacker, target]; forks: pieces = [attacker, target, target, ...]; pins: pieces = [attacker, pinned piece]; hanging: pieces = [the piece].
-  - winsMaterial: side wins "number" pawns along line "line"; mates: side mates in "number" moves along line "line"; threatens: side threatens line "line"; better: side is better at position "at".
-  - "side" is always the side doing it. Fields a kind does not use: pieces empty, number 0, line 0, at {"t": "after", "id": 0, "ply": 0}. Line numbers are the "line:N" fact ids.
+  - attacks: pieces = [attacker ref, target ref]; forks: pieces = [attacker ref, target refs...]; pins: pieces = [attacker ref, pinned ref]; hanging: pieces = [the piece's ref].
+  - winsMaterial: side wins "number" pawns along line "line"; mates: side mates in "number" moves along line "line"; threatens: side threatens line "line"; better: side is better at "at", which is "before", "after" or "line:<id>:<ply>".
+  - "side" is always the side doing it. Fields a kind does not use: pieces empty, number 0, line 0, at "". Line numbers are the N of "line:N" fact ids.
 - List the ids of the facts each sentence relies on in "factIds". Every sentence cites at least one fact of its own item (or a game fact for the narrative).
 
 Per move: first the verdict, then how it is punished or what the better move achieves, then at most one positional reason.
@@ -48,16 +49,23 @@ fn word_limit(config: &NarratorConfig, item: &NarrationItem) -> u16 {
     }
 }
 
-fn fact_json(fact: &NarrationFact) -> Value {
+/// A fact as the model sees it, under the id sentences cite it with, with its refs.
+fn fact_json(id: &str, fact: &NarrationFact) -> Value {
     json!({
-        "id": fact.id,
+        "id": id,
         "kind": fact.kind,
         "draft": fact.text_hint,
-        "vocabulary": fact.vocabulary,
+        "refs": refs_of(id, &fact.vocabulary),
+        "sides": fact.vocabulary.sides,
     })
 }
 
-fn item_json(config: &NarratorConfig, item: &NarrationItem) -> Value {
+/// A move; `cite` gives the id each of its facts is cited with.
+fn item_json(
+    config: &NarratorConfig,
+    item: &NarrationItem,
+    cite: impl Fn(&NarrationFact) -> String,
+) -> Value {
     json!({
         "index": item.index,
         "moveNumber": item.move_number,
@@ -67,7 +75,7 @@ fn item_json(config: &NarratorConfig, item: &NarrationItem) -> Value {
         "classification": item.classification,
         "kind": item.kind,
         "wordBudget": word_limit(config, item),
-        "facts": item.facts.iter().map(fact_json).collect::<Vec<_>>(),
+        "facts": item.facts.iter().map(|f| fact_json(&cite(f), f)).collect::<Vec<_>>(),
     })
 }
 
@@ -79,16 +87,23 @@ pub fn user_message(
 ) -> String {
     let task = match content {
         ChunkContent::Moves(items) => json!({
-            "task": "Write the sentences for each move in \"items\". Return one entry per item, with its index, and leave the narrative's lists empty.",
-            "items": items.iter().map(|i| item_json(config, i)).collect::<Vec<_>>(),
+            "task": "Write the sentences for each move in \"items\". Return one entry per item, with its index.",
+            "items": items
+                .iter()
+                .map(|i| item_json(config, i, |f| f.id.clone()))
+                .collect::<Vec<_>>(),
         }),
         ChunkContent::Narrative(game) => json!({
-            "task": "Write the game narrative and its takeaways. Return an empty \"items\" list.",
+            "task": "Write the game narrative and its takeaways.",
             "wordBudget": config.budget.narrative_words,
             "keyMomentWordBudget": config.budget.key_moment_words,
             "result": game.result,
-            "gameFacts": game.facts.iter().map(fact_json).collect::<Vec<_>>(),
-            "turningPoints": game.turning_points.iter().map(|i| item_json(config, i)).collect::<Vec<_>>(),
+            "gameFacts": game.facts.iter().map(|f| fact_json(&f.id, f)).collect::<Vec<_>>(),
+            "turningPoints": game
+                .turning_points
+                .iter()
+                .map(|i| item_json(config, i, |f| cited_id(i, f)))
+                .collect::<Vec<_>>(),
         }),
     };
     json!({

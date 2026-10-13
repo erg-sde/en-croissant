@@ -15,7 +15,7 @@ use super::{
     prompt::{user_message, ChunkContent, SYSTEM_PROMPT},
     provider::{NarrationFailure, NarratorConfig, Provider, ProviderRequest, Served},
     secrets::{FileStore, SecretStore},
-    wire::{narration_schema, NarrationResponse},
+    wire::{moves_schema, narrative_schema, MovesResponse, NarrativeResponse},
 };
 use crate::{
     error::Error,
@@ -209,25 +209,28 @@ fn read_answer(
     json: &str,
     content: &ChunkContent<'_>,
 ) -> Result<(Vec<NarratedMove>, Option<NarratedGame>), NarrationFailure> {
-    let response: NarrationResponse =
-        serde_json::from_str(json).map_err(|e| NarrationFailure::MalformedResponse {
-            message: super::provider::Redacted::new(&e.to_string(), None),
-        })?;
-    let (moves, narrative) = response.into_narrated();
+    let malformed = |e: serde_json::Error| NarrationFailure::MalformedResponse {
+        message: super::provider::Redacted::new(&e.to_string(), None),
+    };
     match content {
         ChunkContent::Moves(items) => {
-            let moves = moves
+            let response: MovesResponse = serde_json::from_str(json).map_err(malformed)?;
+            let moves = response
+                .resolve(items)
                 .into_iter()
-                .filter_map(|mut narrated| {
-                    let item = items.iter().find(|i| i.index == narrated.index)?;
-                    narrated.fen_before = item.fen_before.clone();
-                    narrated.san = item.san.clone();
-                    Some(narrated)
+                .map(|(item, sentences)| NarratedMove {
+                    index: item.index,
+                    fen_before: item.fen_before.clone(),
+                    san: item.san.clone(),
+                    sentences,
                 })
                 .collect();
             Ok((moves, None))
         }
-        ChunkContent::Narrative(_) => Ok((vec![], narrative)),
+        ChunkContent::Narrative(game) => {
+            let response: NarrativeResponse = serde_json::from_str(json).map_err(malformed)?;
+            Ok((vec![], response.resolve(game)))
+        }
     }
 }
 
@@ -246,7 +249,7 @@ pub async fn run_narration(
 ) -> Result<NarrationRun, Error> {
     let plan = plan_chunks(request);
     let chunks = plan.len() as u32;
-    let schema = narration_schema();
+    let (moves_schema, narrative_schema) = (moves_schema(), narrative_schema());
     for (done, content) in plan.iter().enumerate() {
         let done = done as u32;
         if is_cancelled(cancel) {
@@ -257,7 +260,10 @@ pub async fn run_narration(
         let call = ProviderRequest {
             system: SYSTEM_PROMPT,
             user: &user,
-            schema: &schema,
+            schema: match content {
+                ChunkContent::Moves(_) => &moves_schema,
+                ChunkContent::Narrative(_) => &narrative_schema,
+            },
         };
         let answer = provider
             .complete(&call, cancel)
@@ -497,8 +503,8 @@ mod tests {
         (run, chunks)
     }
 
-    const MOVE_ANSWER: &str = r#"{"items":[{"index":1,"sentences":[{"template":"{{m0}} opens the game.","slots":{"moves":[{"san":"e4","side":"white","at":{"t":"before","id":0,"ply":0}}],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["line:0"]}]},{"index":99,"sentences":[]}],"narrative":{"sentences":[],"takeaways":[]}}"#;
-    const NARRATIVE_ANSWER: &str = r#"{"items":[],"narrative":{"sentences":[{"template":"{{m0}} ended it.","slots":{"moves":[{"san":"e4","side":"white","at":{"t":"before","id":0,"ply":0}}],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["game:terminal:0"]}],"takeaways":[]}}"#;
+    const MOVE_ANSWER: &str = r#"{"items":[{"index":1,"sentences":[{"template":"{{m0}} opens the game.","slots":{"moves":["line:0/moves/0"],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["line:0"]}]},{"index":99,"sentences":[]}]}"#;
+    const NARRATIVE_ANSWER: &str = r#"{"sentences":[{"template":"{{m0}} ended it.","slots":{"moves":["game:terminal:0/moves/0"],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["game:terminal:0"]}],"takeaways":[]}"#;
 
     #[tokio::test]
     async fn anthropic_chunks_are_emitted_with_positions_from_the_request() {

@@ -1,81 +1,111 @@
 //! What the model writes, and how it becomes `NarratedSentence`s.
 //!
-//! Structured outputs limit how many parameters may be nullable or unions, so the wire shape has
-//! neither: slots are arrays (`{{m0}}` is `moves[0]`), a claim is one flat object whose `kind` says
-//! which fields count, and a position is `{ t, id, ply }` with `id`/`ply` 0 unless `t` is "line".
-//! The conversion here turns that into the typed `Slots`/`Claim` the validator checks; a claim
-//! missing the pieces its kind needs is dropped, which only makes the sentence easier to reject.
+//! Structured outputs compile the response schema into a grammar with size limits, so the wire
+//! shape is small and flat: no unions, no nullable fields, and board references written as *refs*
+//! instead of copied values. A ref names one entry of a cited fact's vocabulary,
+//! `"<fact id>/<moves|pieces|squares|numbers>/<n>"` (for example `"line:2/moves/1"`), and is looked
+//! up here in the request, so the model cannot garble a move, a square or a number while copying it.
+//! A ref that does not resolve leaves its slot empty and the frontend validator drops the sentence;
+//! a claim missing a piece it needs is dropped, which only makes the sentence easier to reject.
 
 use serde::Deserialize;
 use serde_json::{json, Value};
 
 use super::{
-    facts::{MoveRef, NumberRef, PieceKind, PieceRef, PositionRef, Side},
-    narrate::{Claim, NarratedGame, NarratedMove, NarratedSentence, NarratedTakeaway, Slots},
+    facts::{FactVocabulary, MoveRef, NumberRef, PieceRef, PositionRef, Side},
+    narrate::{
+        Claim, NarratedGame, NarratedSentence, NarratedTakeaway, NarrationFact, NarrationGame,
+        NarrationItem, Slots,
+    },
 };
 
-#[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
-#[serde(rename_all = "camelCase")]
-enum PositionKind {
-    Before,
-    After,
-    Line,
+/// The facts a chunk's sentences may cite, by the id they are cited with.
+pub struct RefTable<'a> {
+    facts: Vec<(String, &'a FactVocabulary)>,
 }
 
-#[derive(Deserialize, Debug, Clone, Copy)]
-struct WirePosition {
-    t: PositionKind,
-    #[serde(default)]
-    id: u8,
-    #[serde(default)]
-    ply: u8,
-}
-
-impl From<WirePosition> for PositionRef {
-    fn from(p: WirePosition) -> Self {
-        match p.t {
-            PositionKind::Before => PositionRef::Before,
-            PositionKind::After => PositionRef::After,
-            PositionKind::Line => PositionRef::Line {
-                id: p.id,
-                ply: p.ply,
-            },
+impl<'a> RefTable<'a> {
+    /// The facts of one move, cited by their own ids.
+    pub fn for_item(item: &'a NarrationItem) -> Self {
+        Self {
+            facts: item
+                .facts
+                .iter()
+                .map(|f| (f.id.clone(), &f.vocabulary))
+                .collect(),
         }
+    }
+
+    /// Game facts, and the turning points' move facts cited as `"<index>/<id>"`.
+    pub fn for_game(game: &'a NarrationGame) -> Self {
+        let mut facts: Vec<(String, &FactVocabulary)> = game
+            .facts
+            .iter()
+            .map(|f| (f.id.clone(), &f.vocabulary))
+            .collect();
+        for item in &game.turning_points {
+            for fact in &item.facts {
+                facts.push((cited_id(item, fact), &fact.vocabulary));
+            }
+        }
+        Self { facts }
+    }
+
+    fn entry(&self, reference: &str, kind: &str) -> Option<(&'a FactVocabulary, usize)> {
+        let mut parts = reference.rsplitn(3, '/');
+        let n: usize = parts.next()?.trim().parse().ok()?;
+        if parts.next()? != kind {
+            return None;
+        }
+        let fact = parts.next()?;
+        self.facts
+            .iter()
+            .find(|(id, _)| id == fact)
+            .map(|(_, vocabulary)| (*vocabulary, n))
+    }
+
+    fn move_ref(&self, r: &str) -> Option<MoveRef> {
+        let (v, n) = self.entry(r, "moves")?;
+        v.moves.get(n).cloned()
+    }
+
+    fn piece(&self, r: &str) -> Option<PieceRef> {
+        let (v, n) = self.entry(r, "pieces")?;
+        v.pieces.get(n).cloned()
+    }
+
+    fn square(&self, r: &str) -> Option<String> {
+        let (v, n) = self.entry(r, "squares")?;
+        v.squares.get(n).cloned()
+    }
+
+    fn number(&self, r: &str) -> Option<NumberRef> {
+        let (v, n) = self.entry(r, "numbers")?;
+        v.numbers.get(n).cloned()
     }
 }
 
-#[derive(Deserialize, Debug, Clone)]
-struct WireMove {
-    san: String,
-    side: Side,
-    at: WirePosition,
+/// How a turning point's fact is cited from the narrative.
+pub fn cited_id(item: &NarrationItem, fact: &NarrationFact) -> String {
+    format!("{}/{}", item.index, fact.id)
 }
 
-impl From<WireMove> for MoveRef {
-    fn from(m: WireMove) -> Self {
-        MoveRef {
-            san: m.san,
-            side: m.side,
-            at: m.at.into(),
-        }
+/// Every ref a fact offers, with the value it stands for, as shown to the model.
+pub fn refs_of(id: &str, vocabulary: &FactVocabulary) -> Value {
+    let mut refs = serde_json::Map::new();
+    for (n, m) in vocabulary.moves.iter().enumerate() {
+        refs.insert(format!("{id}/moves/{n}"), json!(m));
     }
-}
-
-#[derive(Deserialize, Debug, Clone)]
-struct WirePiece {
-    piece: PieceKind,
-    square: String,
-    at: WirePosition,
-}
-
-impl From<WirePiece> for PieceRef {
-    fn from(p: WirePiece) -> Self {
-        PieceRef {
-            piece: p.piece,
-            square: p.square,
-            at: p.at.into(),
-        }
+    for (n, p) in vocabulary.pieces.iter().enumerate() {
+        refs.insert(format!("{id}/pieces/{n}"), json!(p));
     }
+    for (n, s) in vocabulary.squares.iter().enumerate() {
+        refs.insert(format!("{id}/squares/{n}"), json!(s));
+    }
+    for (n, x) in vocabulary.numbers.iter().enumerate() {
+        refs.insert(format!("{id}/numbers/{n}"), json!(x));
+    }
+    Value::Object(refs)
 }
 
 #[derive(Deserialize, Debug, Clone, Copy, PartialEq, Eq)]
@@ -86,43 +116,53 @@ enum WireSide {
     None,
 }
 
+impl WireSide {
+    fn side(self) -> Option<Side> {
+        match self {
+            WireSide::White => Some(Side::White),
+            WireSide::Black => Some(Side::Black),
+            WireSide::None => None,
+        }
+    }
+}
+
 #[derive(Deserialize, Debug, Clone, Default)]
 #[serde(rename_all = "camelCase")]
 struct WireSlots {
     #[serde(default)]
-    moves: Vec<WireMove>,
+    moves: Vec<String>,
     #[serde(default)]
-    pieces: Vec<WirePiece>,
+    pieces: Vec<String>,
     #[serde(default)]
     squares: Vec<String>,
     #[serde(default)]
-    numbers: Vec<NumberRef>,
+    numbers: Vec<String>,
     side: Option<WireSide>,
     #[serde(default)]
-    piece_list: Vec<WirePiece>,
+    piece_list: Vec<String>,
 }
 
-impl From<WireSlots> for Slots {
-    fn from(w: WireSlots) -> Self {
-        let mut moves = w.moves.into_iter().map(MoveRef::from);
-        let mut pieces = w.pieces.into_iter().map(PieceRef::from);
-        let mut squares = w.squares.into_iter();
-        let mut numbers = w.numbers.into_iter();
+fn get(refs: &[String], n: usize) -> Option<&str> {
+    refs.get(n).map(String::as_str)
+}
+
+impl WireSlots {
+    fn resolve(self, table: &RefTable) -> Slots {
         Slots {
-            m0: moves.next(),
-            m1: moves.next(),
-            p0: pieces.next(),
-            p1: pieces.next(),
-            s0: squares.next(),
-            s1: squares.next(),
-            n0: numbers.next(),
-            n1: numbers.next(),
-            side: match w.side {
-                Some(WireSide::White) => Some(Side::White),
-                Some(WireSide::Black) => Some(Side::Black),
-                _ => None,
-            },
-            pieces: w.piece_list.into_iter().map(PieceRef::from).collect(),
+            m0: get(&self.moves, 0).and_then(|r| table.move_ref(r)),
+            m1: get(&self.moves, 1).and_then(|r| table.move_ref(r)),
+            p0: get(&self.pieces, 0).and_then(|r| table.piece(r)),
+            p1: get(&self.pieces, 1).and_then(|r| table.piece(r)),
+            s0: get(&self.squares, 0).and_then(|r| table.square(r)),
+            s1: get(&self.squares, 1).and_then(|r| table.square(r)),
+            n0: get(&self.numbers, 0).and_then(|r| table.number(r)),
+            n1: get(&self.numbers, 1).and_then(|r| table.number(r)),
+            side: self.side.and_then(WireSide::side),
+            pieces: self
+                .piece_list
+                .iter()
+                .filter_map(|r| table.piece(r))
+                .collect(),
         }
     }
 }
@@ -146,22 +186,35 @@ struct WireClaim {
     kind: ClaimKind,
     side: Side,
     #[serde(default)]
-    pieces: Vec<WirePiece>,
+    pieces: Vec<String>,
     #[serde(default)]
     number: i32,
     #[serde(default)]
     line: u8,
-    at: Option<WirePosition>,
+    /// "before", "after", or "line:<id>:<ply>".
+    #[serde(default)]
+    at: String,
+}
+
+fn position(at: &str) -> Option<PositionRef> {
+    match at.trim() {
+        "before" => Some(PositionRef::Before),
+        "after" => Some(PositionRef::After),
+        other => {
+            let mut parts = other.strip_prefix("line:")?.split(':');
+            let id = parts.next()?.parse().ok()?;
+            let ply = parts.next()?.parse().ok()?;
+            Some(PositionRef::Line { id, ply })
+        }
+    }
 }
 
 impl WireClaim {
-    /// The typed claim, or `None` when the pieces its kind needs are missing.
-    fn into_claim(self) -> Option<Claim> {
-        let side = self.side;
-        let line = self.line;
-        let number = self.number;
-        let at = self.at.map(PositionRef::from).unwrap_or(PositionRef::After);
-        let mut pieces = self.pieces.into_iter().map(PieceRef::from);
+    /// The typed claim, or `None` when a piece or position it needs does not resolve.
+    fn resolve(self, table: &RefTable) -> Option<Claim> {
+        let pieces: Option<Vec<PieceRef>> = self.pieces.iter().map(|r| table.piece(r)).collect();
+        let mut pieces = pieces?.into_iter();
+        let (side, line, number) = (self.side, self.line, self.number);
         Some(match self.kind {
             ClaimKind::Attacks => Claim::Attacks {
                 attacker: pieces.next()?,
@@ -188,7 +241,10 @@ impl WireClaim {
                 mate_in: number.clamp(0, u8::MAX as i32) as u8,
                 line,
             },
-            ClaimKind::Better => Claim::Better { side, at },
+            ClaimKind::Better => Claim::Better {
+                side,
+                at: position(&self.at)?,
+            },
             ClaimKind::Threatens => Claim::Threatens { side, line },
         })
     }
@@ -206,23 +262,23 @@ struct WireSentence {
     fact_ids: Vec<String>,
 }
 
-impl From<WireSentence> for NarratedSentence {
-    fn from(w: WireSentence) -> Self {
+impl WireSentence {
+    fn resolve(self, table: &RefTable) -> NarratedSentence {
         NarratedSentence {
-            template: w.template,
-            slots: w.slots.into(),
-            claims: w
+            template: self.template,
+            slots: self.slots.resolve(table),
+            claims: self
                 .claims
                 .into_iter()
-                .filter_map(WireClaim::into_claim)
+                .filter_map(|c| c.resolve(table))
                 .collect(),
-            fact_ids: w.fact_ids,
+            fact_ids: self.fact_ids,
         }
     }
 }
 
-fn sentences(w: Vec<WireSentence>) -> Vec<NarratedSentence> {
-    w.into_iter().map(Into::into).collect()
+fn resolve_all(sentences: Vec<WireSentence>, table: &RefTable) -> Vec<NarratedSentence> {
+    sentences.into_iter().map(|s| s.resolve(table)).collect()
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -230,6 +286,27 @@ struct WireMoveItem {
     index: u32,
     #[serde(default)]
     sentences: Vec<WireSentence>,
+}
+
+/// The answer to a move chunk.
+#[derive(Deserialize, Debug, Clone)]
+pub struct MovesResponse {
+    #[serde(default)]
+    items: Vec<WireMoveItem>,
+}
+
+impl MovesResponse {
+    /// `(index, sentences)` for each move that was asked for, refs resolved against its facts.
+    pub fn resolve(self, items: &[NarrationItem]) -> Vec<(&NarrationItem, Vec<NarratedSentence>)> {
+        self.items
+            .into_iter()
+            .filter_map(|answer| {
+                let item = items.iter().find(|i| i.index == answer.index)?;
+                let table = RefTable::for_item(item);
+                Some((item, resolve_all(answer.sentences, &table)))
+            })
+            .collect()
+    }
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -240,51 +317,31 @@ struct WireTakeaway {
     sentences: Vec<WireSentence>,
 }
 
+/// The answer to the narrative request.
 #[derive(Deserialize, Debug, Clone)]
-struct WireGame {
+pub struct NarrativeResponse {
     #[serde(default)]
     sentences: Vec<WireSentence>,
     #[serde(default)]
     takeaways: Vec<WireTakeaway>,
 }
 
-/// One answer: the moves and, for the narrative request, the game summary.
-#[derive(Deserialize, Debug, Clone)]
-pub struct NarrationResponse {
-    #[serde(default)]
-    items: Vec<WireMoveItem>,
-    #[serde(default)]
-    narrative: Option<WireGame>,
-}
-
-impl NarrationResponse {
-    /// The narrated moves (positions not yet filled in) and the narrative, if one was written.
-    pub fn into_narrated(self) -> (Vec<NarratedMove>, Option<NarratedGame>) {
-        let moves = self
-            .items
-            .into_iter()
-            .map(|item| NarratedMove {
-                index: item.index,
-                fen_before: String::new(),
-                san: String::new(),
-                sentences: sentences(item.sentences),
-            })
-            .collect();
-        let narrative = self
-            .narrative
-            .map(|game| NarratedGame {
-                sentences: sentences(game.sentences),
-                takeaways: game
-                    .takeaways
-                    .into_iter()
-                    .map(|t| NarratedTakeaway {
-                        indices: t.indices,
-                        sentences: sentences(t.sentences),
-                    })
-                    .collect(),
-            })
-            .filter(|game| !game.sentences.is_empty() || !game.takeaways.is_empty());
-        (moves, narrative)
+impl NarrativeResponse {
+    /// The narrative with refs resolved, or `None` when nothing was written.
+    pub fn resolve(self, game: &NarrationGame) -> Option<NarratedGame> {
+        let table = RefTable::for_game(game);
+        let narrated = NarratedGame {
+            sentences: resolve_all(self.sentences, &table),
+            takeaways: self
+                .takeaways
+                .into_iter()
+                .map(|t| NarratedTakeaway {
+                    indices: t.indices,
+                    sentences: resolve_all(t.sentences, &table),
+                })
+                .collect(),
+        };
+        (!narrated.sentences.is_empty() || !narrated.takeaways.is_empty()).then_some(narrated)
     }
 }
 
@@ -301,88 +358,71 @@ fn closed(properties: Value) -> Value {
     })
 }
 
-fn string_enum(values: &[&str]) -> Value {
-    json!({ "type": "string", "enum": values })
+fn strings() -> Value {
+    json!({ "type": "array", "items": { "type": "string" } })
 }
 
 fn array(items: Value) -> Value {
     json!({ "type": "array", "items": items })
 }
 
-fn position_schema() -> Value {
-    closed(json!({
-        "t": string_enum(&["before", "after", "line"]),
-        "id": { "type": "integer" },
-        "ply": { "type": "integer" },
-    }))
-}
-
-fn piece_schema() -> Value {
-    closed(json!({
-        "piece": string_enum(&["pawn", "knight", "bishop", "rook", "queen", "king"]),
-        "square": { "type": "string" },
-        "at": position_schema(),
-    }))
-}
-
 fn sentence_schema() -> Value {
-    let side = string_enum(&["white", "black"]);
     closed(json!({
         "template": { "type": "string" },
         "slots": closed(json!({
-            "moves": array(closed(json!({
-                "san": { "type": "string" },
-                "side": side,
-                "at": position_schema(),
-            }))),
-            "pieces": array(piece_schema()),
-            "squares": array(json!({ "type": "string" })),
-            "numbers": array(closed(json!({
-                "value": { "type": "number" },
-                "unit": string_enum(&["pawns", "mateIn", "winPercent", "move", "eval", "seconds"]),
-            }))),
-            "side": string_enum(&["white", "black", "none"]),
-            "pieceList": array(piece_schema()),
+            "moves": strings(),
+            "pieces": strings(),
+            "squares": strings(),
+            "numbers": strings(),
+            "side": { "type": "string", "enum": ["white", "black", "none"] },
+            "pieceList": strings(),
         })),
         "claims": array(closed(json!({
-            "kind": string_enum(&[
+            "kind": { "type": "string", "enum": [
                 "attacks", "forks", "pins", "hanging", "winsMaterial", "mates", "better", "threatens",
-            ]),
-            "side": side,
-            "pieces": array(piece_schema()),
+            ] },
+            "side": { "type": "string", "enum": ["white", "black"] },
+            "pieces": strings(),
             "number": { "type": "integer" },
             "line": { "type": "integer" },
-            "at": position_schema(),
+            "at": { "type": "string" },
         }))),
-        "factIds": array(json!({ "type": "string" })),
+        "factIds": strings(),
     }))
 }
 
-/// The response schema: closed objects with every property required, no unions or nullable
-/// fields, no recursion and no numeric or length constraints, as structured outputs require.
-pub fn narration_schema() -> Value {
-    let sentences = array(sentence_schema());
+/// The schema of a move chunk's answer: no unions, no nullable fields, no constraints.
+pub fn moves_schema() -> Value {
     closed(json!({
         "items": array(closed(json!({
             "index": { "type": "integer" },
+            "sentences": array(sentence_schema()),
+        }))),
+    }))
+}
+
+/// The schema of the narrative's answer.
+pub fn narrative_schema() -> Value {
+    let sentences = array(sentence_schema());
+    closed(json!({
+        "sentences": sentences,
+        "takeaways": array(closed(json!({
+            "indices": array(json!({ "type": "integer" })),
             "sentences": sentences,
         }))),
-        "narrative": closed(json!({
-            "sentences": sentences,
-            "takeaways": array(closed(json!({
-                "indices": array(json!({ "type": "integer" })),
-                "sentences": sentences,
-            }))),
-        })),
     }))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::commentary::{
+        facts::{CommentaryKind, FactKind, PieceKind},
+        narrate::NarrationFact,
+    };
 
-    /// Every object in the schema is closed and requires all of its properties, and nothing is a
-    /// union or nullable.
+    /// Every object is closed and requires all of its properties; nothing is a union, nullable or
+    /// constrained.
     fn check(schema: &Value, path: &str, problems: &mut Vec<String>) {
         match schema {
             Value::Object(map) => {
@@ -427,84 +467,150 @@ mod tests {
     }
 
     #[test]
-    fn schema_has_no_unions_and_every_object_is_closed() {
+    fn schemas_are_small_flat_and_closed() {
         let mut problems = vec![];
-        check(&narration_schema(), "", &mut problems);
+        check(&moves_schema(), "moves", &mut problems);
+        check(&narrative_schema(), "narrative", &mut problems);
         assert_eq!(problems, Vec::<String>::new());
+        // A guard against regrowth: the old schema that the API rejected was ~25 KB.
+        assert!(moves_schema().to_string().len() < 2500);
+        assert!(narrative_schema().to_string().len() < 5000);
     }
 
-    fn piece(piece: &str, square: &str, at: Value) -> Value {
-        json!({ "piece": piece, "square": square, "at": at })
+    fn item() -> NarrationItem {
+        let rc8 = MoveRef {
+            san: "Rc8".into(),
+            side: Side::Black,
+            at: PositionRef::Before,
+        };
+        let d4 = MoveRef {
+            san: "d4".into(),
+            side: Side::White,
+            at: PositionRef::Line { id: 2, ply: 0 },
+        };
+        let knight = PieceRef {
+            piece: PieceKind::Knight,
+            square: "e5".into(),
+            at: PositionRef::Line { id: 2, ply: 0 },
+        };
+        NarrationItem {
+            index: 23,
+            fen_before: "8/8/8/8/8/8/8/8 b - - 0 12".into(),
+            move_number: 12,
+            san: "Rc8".into(),
+            side: Side::Black,
+            classification: "?".into(),
+            kind: CommentaryKind::Mistake,
+            budget_words: 60,
+            facts: vec![NarrationFact {
+                id: "line:2".into(),
+                kind: FactKind::Line,
+                vocabulary: FactVocabulary {
+                    moves: vec![rc8, d4],
+                    pieces: vec![knight],
+                    squares: vec!["e5".into()],
+                    numbers: vec![NumberRef {
+                        value: 3.0,
+                        unit: crate::commentary::facts::NumberUnit::Pawns,
+                    }],
+                    sides: vec![Side::White],
+                },
+                text_hint: "Rc8 allows d4, winning the knight.".into(),
+            }],
+        }
     }
 
     #[test]
-    fn an_answer_becomes_typed_slots_and_claims() {
-        let before = json!({ "t": "before", "id": 0, "ply": 0 });
-        let line = json!({ "t": "line", "id": 2, "ply": 1 });
-        let after = json!({ "t": "after", "id": 0, "ply": 0 });
-        let response: NarrationResponse = serde_json::from_value(json!({
-            "items": [{ "index": 23, "sentences": [{
-                "template": "{{m0}} allows {{m1}}, and {{p0}} is lost.",
-                "slots": {
-                    "moves": [
-                        { "san": "Rc8", "side": "black", "at": before },
-                        { "san": "d4", "side": "white", "at": line },
+    fn refs_resolve_to_the_values_of_the_cited_fact() {
+        let items = [item()];
+        let response: MovesResponse = serde_json::from_value(json!({
+            "items": [
+                { "index": 23, "sentences": [{
+                    "template": "{{m0}} allows {{m1}}, which wins {{p0}}.",
+                    "slots": {
+                        "moves": ["line:2/moves/0", "line:2/moves/1"],
+                        "pieces": ["line:2/pieces/0"],
+                        "squares": [], "numbers": ["line:2/numbers/9"], "side": "none", "pieceList": []
+                    },
+                    "claims": [
+                        { "kind": "winsMaterial", "side": "white", "pieces": [], "number": 3, "line": 2, "at": "" },
+                        { "kind": "forks", "side": "white", "pieces": ["line:2/pieces/7"], "number": 0, "line": 0, "at": "" },
+                        { "kind": "better", "side": "white", "pieces": [], "number": 0, "line": 0, "at": "line:2:0" }
                     ],
-                    "pieces": [piece("knight", "e5", after.clone())],
-                    "squares": [], "numbers": [], "side": "none", "pieceList": []
-                },
-                "claims": [
-                    { "kind": "winsMaterial", "side": "white", "pieces": [], "number": 3, "line": 2, "at": after },
-                    { "kind": "forks", "side": "white", "pieces": [], "number": 0, "line": 0, "at": after },
-                ],
-                "factIds": ["line:2"]
-            }]}],
-            "narrative": { "sentences": [], "takeaways": [] }
+                    "factIds": ["line:2"]
+                }]},
+                { "index": 99, "sentences": [] }
+            ]
         }))
         .unwrap();
-        let (moves, narrative) = response.into_narrated();
-        assert!(narrative.is_none(), "an empty narrative counts as none");
-        let sentence = &moves[0].sentences[0];
+        let resolved = response.resolve(&items);
         assert_eq!(
-            sentence.slots.m1,
-            Some(MoveRef {
-                san: "d4".into(),
-                side: Side::White,
-                at: PositionRef::Line { id: 2, ply: 1 },
-            })
+            resolved.len(),
+            1,
+            "an index that was not asked for is dropped"
         );
+        let sentence = &resolved[0].1[0];
+        assert_eq!(sentence.slots.m1.as_ref().unwrap().san, "d4");
         assert_eq!(sentence.slots.p0.as_ref().unwrap().square, "e5");
-        assert_eq!(sentence.slots.side, None);
-        // The fork has no attacker and is dropped; the material claim stays.
+        assert_eq!(
+            sentence.slots.n0, None,
+            "an out-of-range ref resolves to nothing"
+        );
         assert_eq!(
             sentence.claims,
-            vec![Claim::WinsMaterial {
-                side: Side::White,
-                pawns: 3,
-                line: 2
-            }]
+            vec![
+                Claim::WinsMaterial {
+                    side: Side::White,
+                    pawns: 3,
+                    line: 2
+                },
+                Claim::Better {
+                    side: Side::White,
+                    at: PositionRef::Line { id: 2, ply: 0 }
+                },
+            ],
+            "the fork whose piece does not resolve is dropped"
         );
     }
 
     #[test]
-    fn claims_take_their_pieces_in_order() {
-        let at = json!({ "t": "after", "id": 0, "ply": 0 });
-        let claim: WireClaim = serde_json::from_value(json!({
-            "kind": "forks", "side": "white",
-            "pieces": [piece("knight", "c7", at.clone()), piece("king", "e8", at.clone()), piece("rook", "a8", at.clone())],
-            "number": 0, "line": 0, "at": at
+    fn the_narrative_resolves_turning_point_refs_by_their_cited_id() {
+        let game = NarrationGame {
+            facts: vec![],
+            result: "0-1".into(),
+            turning_points: vec![item()],
+        };
+        let response: NarrativeResponse = serde_json::from_value(json!({
+            "sentences": [{
+                "template": "{{m0}} decided the game.",
+                "slots": { "moves": ["23/line:2/moves/0"], "pieces": [], "squares": [], "numbers": [], "side": "black", "pieceList": [] },
+                "claims": [], "factIds": ["23/line:2"]
+            }],
+            "takeaways": []
         }))
         .unwrap();
-        let Some(Claim::Forks { attacker, targets }) = claim.into_claim() else {
-            panic!("expected a fork");
-        };
-        assert_eq!(attacker.square, "c7");
+        let narrated = response.resolve(&game).unwrap();
+        assert_eq!(narrated.sentences[0].slots.m0.as_ref().unwrap().san, "Rc8");
+        assert_eq!(narrated.sentences[0].slots.side, Some(Side::Black));
+        let empty: NarrativeResponse =
+            serde_json::from_value(json!({ "sentences": [], "takeaways": [] })).unwrap();
+        assert!(empty.resolve(&game).is_none());
+    }
+
+    #[test]
+    fn refs_shown_to_the_model_name_every_vocabulary_entry() {
+        let item = item();
+        let refs = refs_of("line:2", &item.facts[0].vocabulary);
+        let keys: Vec<&String> = refs.as_object().unwrap().keys().collect();
         assert_eq!(
-            targets
-                .iter()
-                .map(|t| t.square.as_str())
-                .collect::<Vec<_>>(),
-            ["e8", "a8"]
+            keys,
+            [
+                "line:2/moves/0",
+                "line:2/moves/1",
+                "line:2/numbers/0",
+                "line:2/pieces/0",
+                "line:2/squares/0"
+            ]
         );
     }
 }
