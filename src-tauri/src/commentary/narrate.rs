@@ -270,15 +270,27 @@ pub async fn run_narration(
             .await
             .and_then(|response| Ok((read_answer(&response.json, content)?, response.served)));
         match answer {
-            Ok(((items, narrative), served)) => emit(NarrationChunk {
-                id: id.to_string(),
-                run_id: run_id.to_string(),
-                chunk: done,
-                chunks,
-                items,
-                narrative,
-                served,
-            })?,
+            Ok(((items, narrative), served)) => {
+                log::info!(
+                    "Narration {id} chunk {}/{chunks}: {} moves, {} sentences, narrative: {}, model {}, {} in / {} out tokens",
+                    done + 1,
+                    items.len(),
+                    items.iter().map(|m| m.sentences.len()).sum::<usize>(),
+                    narrative.is_some(),
+                    served.model,
+                    served.input_tokens,
+                    served.output_tokens,
+                );
+                emit(NarrationChunk {
+                    id: id.to_string(),
+                    run_id: run_id.to_string(),
+                    chunk: done,
+                    chunks,
+                    items,
+                    narrative,
+                    served,
+                })?
+            }
             Err(NarrationFailure::Cancelled) => {
                 return Ok(NarrationRun::Cancelled { chunks_done: done })
             }
@@ -347,6 +359,8 @@ pub async fn narrate_game(
         },
     )
     .await?;
+    // `NarrationRun` holds only counts and a redacted failure.
+    log::info!("Narration {id} ended: {run:?}");
     match run {
         NarrationRun::Cancelled { .. } => guard.cancelled()?,
         _ => guard.finished()?,

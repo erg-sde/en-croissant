@@ -12,7 +12,13 @@ import type { SentenceDraft } from "./narrate";
 import type { CommentaryRun, MoveCommentaryResult } from "./report";
 import { renderSlots } from "./segmentize";
 import type { CommentarySettings } from "./settings";
-import type { CommentarySentence, GameNarrative, MoveCommentary, Provenance } from "./types";
+import type {
+    CommentarySentence,
+    GameNarrative,
+    MoveCommentary,
+    Provenance,
+    ValidationResult,
+} from "./types";
 import { mergeNarration, validateNarrative, validateSentences } from "./validate";
 
 /** Everything needed to turn the chunks of one narration run into records. */
@@ -138,6 +144,7 @@ export function narratedMoveRecord(
     ctx: NarrationRunContext,
     narrated: NarratedMove,
     served: Served,
+    onValidated?: (result: ValidationResult) => void,
 ): { index: number; fenBefore: string; san: string; commentary: MoveCommentary } | null {
     const result = ctx.results[narrated.index];
     const facts = ctx.moves[narrated.index];
@@ -152,6 +159,7 @@ export function narratedMoveRecord(
         result.selection,
         ctx.run,
     );
+    onValidated?.(validation);
     if (narration.sentences.length === 0) {
         return null;
     }
@@ -177,6 +185,7 @@ export function narratedGameRecord(
     ctx: NarrationRunContext,
     narrated: NarratedGame,
     served: Served,
+    onValidated?: (result: ValidationResult) => void,
 ): GameNarrative | null {
     const original = ctx.narrative;
     if (!original) {
@@ -189,6 +198,7 @@ export function narratedGameRecord(
         ctx.moves,
         ctx.run,
     );
+    onValidated?.(validation);
     if (narration.sentences.length === 0) {
         return null;
     }

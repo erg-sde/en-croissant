@@ -3,7 +3,7 @@ import { useForm } from "@mantine/form";
 import { notifications } from "@mantine/notifications";
 import { IconX } from "@tabler/icons-react";
 import { getVersion } from "@tauri-apps/api/app";
-import { error as logError } from "@tauri-apps/plugin-log";
+import { info as logInfo, error as logError } from "@tauri-apps/plugin-log";
 import { useAtom, useAtomValue, useSetAtom } from "jotai";
 import { memo, useContext, useEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
@@ -172,6 +172,9 @@ function ReportModal({
         live.getState().setNarration(snapshot.runId, narration),
       );
     const startNarration = (context: NarrationRunContext) => {
+      logInfo(
+        `Narration started: ${context.results.filter((r) => r?.commentary).length} moves with commentary`,
+      );
       treeRegistry.startRun(context);
       setNarration({ status: "running" });
       const outcome = (run: NarrationRun): NarrationState =>
@@ -185,9 +188,12 @@ function ReportModal({
           buildNarrationRequest(context),
           narratorConfig(commentarySettings, i18n.language, context.run.perspective),
         )
-        .then((result) =>
-          setNarration(result.status === "ok" ? outcome(result.data) : { status: "failed" }),
-        )
+        .then((result) => {
+          logInfo(
+            `Narration finished: ${result.status === "ok" ? JSON.stringify(result.data) : "command error"}`,
+          );
+          setNarration(result.status === "ok" ? outcome(result.data) : { status: "failed" });
+        })
         .catch((e) => {
           logError(`Narration failed: ${e}`);
           setNarration({ status: "failed" });
