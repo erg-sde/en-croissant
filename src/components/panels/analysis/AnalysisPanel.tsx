@@ -41,6 +41,7 @@ import type { Engine } from "@/utils/engines";
 import { getInitials } from "@/utils/format";
 import BestMoves, { arrowColors } from "./BestMoves";
 import EngineSelection from "./EngineSelection";
+import ExplainPosition from "./ExplainPosition";
 import LogsPanel from "./LogsPanel";
 import ReportPanel from "./ReportPanel";
 import ScoreBubble from "./ScoreBubble";
@@ -154,6 +155,7 @@ function AnalysisPanel() {
               </Paper>
             )}
             <Stack mt="sm">
+              <ExplainPosition />
               <Accordion
                 variant="separated"
                 multiple
