@@ -37,6 +37,7 @@
   },
   "globals": {},
   "ignorePatterns": [
+    "docs/**/*",
     "public/**/*",
     "src-tauri/**/*",
     ".github/**/*",

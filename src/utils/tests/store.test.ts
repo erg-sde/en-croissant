@@ -1,9 +1,15 @@
 import { parseUci } from "chessops";
-import { beforeEach, expect, test } from "vitest";
-import { createTreeStore } from "@/state/store/tree";
-import { defaultTree, type TreeState } from "@/utils/treeReducer";
+import { beforeEach, describe, expect, test } from "vitest";
+import { type AnalysisEntry, createTreeStore } from "@/state/store/tree";
+import { deriveGlyphs } from "@/utils/commentary/classify";
+import { buildMoveCommentary } from "@/utils/commentary/report";
+import { takeMainlineSnapshot } from "@/utils/commentary/snapshot";
+import { defaultTree, type TreeState, treeIteratorMainLine } from "@/utils/treeReducer";
+import { facts as commentaryFacts, run as commentaryRun } from "./commentary/helpers";
 
 const store = createTreeStore();
+
+const snapshot = () => takeMainlineSnapshot(store.getState().root, store.getState().headers);
 
 beforeEach(() => {
     store.setState(defaultTree());
@@ -414,7 +420,7 @@ test("should handle setShapes", () => {
 
 test("should handle addAnalysis", () => {
     store.setState({ ...treeE4D5(), position: [0] });
-    store.getState().addAnalysis([
+    const analysis: AnalysisEntry[] = [
         {
             best: [
                 {
@@ -435,6 +441,7 @@ test("should handle addAnalysis", () => {
             ],
             novelty: false,
             is_sacrifice: false,
+            fen: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
         },
         {
             best: [
@@ -456,8 +463,10 @@ test("should handle addAnalysis", () => {
             ],
             novelty: false,
             is_sacrifice: false,
+            fen: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
         },
-    ]);
+    ];
+    store.getState().addAnalysis(analysis, deriveGlyphs(analysis, snapshot()));
 
     expect(getNewState()).toStrictEqual({
         ...treeE4D5(),
@@ -507,5 +516,238 @@ test("should handle promoteVariation", () => {
                 },
             ],
         },
+    });
+});
+
+function entry(fen: string, san: string, uci: string, cp: number): AnalysisEntry {
+    return {
+        best: [
+            {
+                depth: 1,
+                multipv: 1,
+                nodes: 1,
+                score: { value: { type: "cp", value: cp }, wdl: null },
+                nps: 1000,
+                sanMoves: [san],
+                uciMoves: [uci],
+            },
+        ],
+        novelty: false,
+        is_sacrifice: false,
+        fen,
+    };
+}
+
+function mainlineFens(): string[] {
+    return Array.from(treeIteratorMainLine(store.getState().root), ({ node }) => node.fen);
+}
+
+function mainlineScores(): (number | null)[] {
+    return Array.from(treeIteratorMainLine(store.getState().root), ({ node }) =>
+        node.score ? node.score.value.value : null,
+    );
+}
+
+test("addAnalysis skips a position the engine returned no lines for", () => {
+    store.getState().makeMoves({ payload: ["e4", "d5", "Nf3"] });
+    const fens = mainlineFens();
+    const analysis = [
+        entry(fens[0], "e4", "e2e4", 10),
+        entry(fens[1], "d5", "d7d5", 20),
+        { best: [], novelty: false, is_sacrifice: false, fen: fens[2] },
+        entry(fens[3], "Nf6", "g8f6", 30),
+    ];
+    store.getState().addAnalysis(analysis, deriveGlyphs(analysis, snapshot()));
+
+    expect(mainlineScores()).toStrictEqual([10, 20, null, 30]);
+});
+
+test("addAnalysis stops at the first position that no longer matches the run", () => {
+    store.getState().makeMoves({ payload: ["e4", "d5", "Nf3"] });
+    const fens = mainlineFens();
+    const analysis = [
+        entry(fens[0], "e4", "e2e4", 10),
+        entry(fens[1], "d5", "d7d5", 20),
+        entry(fens[2], "Nf3", "g1f3", 30),
+        entry(fens[3], "Nf6", "g8f6", 40),
+    ];
+    const glyphs = deriveGlyphs(analysis, snapshot());
+
+    // While the engine runs, the user replaces 1... d5 with 1... e5 2. Nf3 on the mainline.
+    store.getState().deleteMove([0, 0]);
+    store.getState().goToMove([0]);
+    store.getState().makeMoves({ payload: ["e5", "Nf3"] });
+    store.getState().addAnalysis(analysis, glyphs);
+
+    expect(mainlineScores()).toStrictEqual([10, 20, null, null]);
+});
+
+test("addAnalysis matches positions regardless of FEN counters and en passant squares", () => {
+    store.setState(defaultTree("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3"));
+    store.getState().makeMoves({ payload: ["e5"] });
+    const analysis = [
+        entry("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1", "e5", "e7e5", 10),
+        entry(mainlineFens()[1], "Nf3", "g1f3", 20),
+    ];
+    store.getState().addAnalysis(analysis, deriveGlyphs(analysis, snapshot()));
+
+    expect(mainlineScores()).toStrictEqual([10, 20]);
+});
+
+test("addAnalysis writes only the current report run", () => {
+    store.getState().makeMoves({ payload: ["e4"] });
+    const run = snapshot();
+    const analysis = [
+        entry(mainlineFens()[0], "e4", "e2e4", 10),
+        entry(mainlineFens()[1], "e5", "e7e5", 20),
+    ];
+    store.getState().beginReport(run);
+    expect(store.getState().report).toStrictEqual({ inProgress: true, runId: run.runId });
+
+    store.getState().addAnalysis(analysis, deriveGlyphs(analysis, run), {
+        showVariations: false,
+        runId: "an earlier run",
+    });
+    expect(mainlineScores()).toStrictEqual([null, null]);
+
+    store.getState().addAnalysis(analysis, deriveGlyphs(analysis, run), {
+        showVariations: false,
+        runId: run.runId,
+    });
+    store.getState().endReport(run.runId);
+    expect(mainlineScores()).toStrictEqual([10, 20]);
+    expect(store.getState().report.inProgress).toBe(false);
+});
+
+describe("applyReport", () => {
+    // Commentary records come from the frontend fixtures; only their shape matters here.
+    const record = (fingerprint: string) => ({
+        extended: ["□" as const],
+        selection: null,
+        commentary: {
+            ...buildMoveCommentary(commentaryFacts("onlyMove"), "!", commentaryRun()).commentary!,
+            fingerprint,
+        },
+    });
+
+    function analysed() {
+        store.getState().makeMoves({ payload: ["e4", "e5"] });
+        const fens = mainlineFens();
+        return [
+            entry(fens[0], "e4", "e2e4", 10),
+            entry(fens[1], "e5", "e7e5", 20),
+            entry(fens[2], "Nf3", "g1f3", 30),
+        ];
+    }
+
+    test("writes commentary and extended glyphs, never the user's comment", () => {
+        const analysis = analysed();
+        store.getState().goToMove([0]);
+        store.getState().setComment("my note");
+        store
+            .getState()
+            .applyReport(analysis, [null, "!", null], { showVariations: false }, [
+                null,
+                record("a"),
+                null,
+            ]);
+
+        const e4 = store.getState().root.children[0];
+        expect(e4.comment).toBe("my note");
+        expect(e4.commentary?.fingerprint).toBe("a");
+        expect(e4.annotations).toStrictEqual(["!", "□"]);
+        expect(store.getState().root.children[0].children[0].commentary).toBeUndefined();
+    });
+
+    test("setComment leaves the commentary alone", () => {
+        const analysis = analysed();
+        store
+            .getState()
+            .applyReport(analysis, [null, null, null], { showVariations: false }, [
+                null,
+                record("a"),
+                null,
+            ]);
+        store.getState().goToMove([0]);
+        store.getState().setComment("edited");
+        expect(store.getState().root.children[0].commentary?.fingerprint).toBe("a");
+    });
+
+    test("a re-run replaces stale commentary and removes it where there is none", () => {
+        const analysis = analysed();
+        const apply = (results: (ReturnType<typeof record> | null)[]) =>
+            store
+                .getState()
+                .applyReport(analysis, [null, null, null], { showVariations: false }, results);
+        apply([null, record("a"), record("b")]);
+        const first = store.getState().root.children[0].commentary;
+        apply([null, record("a"), null]);
+        expect(store.getState().root.children[0].commentary).toBe(first);
+        expect(store.getState().root.children[0].children[0].commentary).toBeUndefined();
+        apply([null, record("c"), null]);
+        expect(store.getState().root.children[0].commentary?.fingerprint).toBe("c");
+    });
+
+    test("appendComment adds a paragraph to the user's comment", () => {
+        store.getState().makeMoves({ payload: ["e4"] });
+        store.getState().appendComment([0], "first");
+        store.getState().appendComment([0], "second");
+        expect(store.getState().root.children[0].comment).toBe("first\n\nsecond");
+    });
+});
+
+describe("applyCommentary", () => {
+    const narrated = buildMoveCommentary(
+        commentaryFacts("onlyMove"),
+        "!",
+        commentaryRun(),
+    ).commentary!;
+
+    function started() {
+        store.getState().makeMoves({ payload: ["e4", "e5"] });
+        const run = snapshot();
+        store.getState().beginReport(run);
+        const fens = mainlineFens();
+        return { runId: run.runId, fens };
+    }
+
+    test("writes onto the move it was narrated for, never the comment", () => {
+        const { runId, fens } = started();
+        store.getState().goToMove([0, 0]);
+        store.getState().setComment("mine");
+        store
+            .getState()
+            .applyCommentary(runId, [
+                { index: 2, fenBefore: fens[1], san: "e5", commentary: narrated },
+            ]);
+        const e5 = store.getState().root.children[0].children[0];
+        expect(e5.commentary).toStrictEqual(narrated);
+        expect(e5.comment).toBe("mine");
+        expect(store.getState().root.children[0].commentary).toBeUndefined();
+    });
+
+    test("drops writes for another run or a move that changed", () => {
+        const { runId, fens } = started();
+        store
+            .getState()
+            .applyCommentary("other-run", [
+                { index: 1, fenBefore: fens[0], san: "e4", commentary: narrated },
+            ]);
+        store.getState().applyCommentary(runId, [
+            { index: 1, fenBefore: fens[0], san: "d4", commentary: narrated },
+            { index: 2, fenBefore: fens[0], san: "e5", commentary: narrated },
+        ]);
+        expect(store.getState().root.children[0].commentary).toBeUndefined();
+        expect(store.getState().root.children[0].children[0].commentary).toBeUndefined();
+    });
+
+    test("a new report clears the previous narration state", () => {
+        const { runId } = started();
+        store.getState().setNarration(runId, { status: "failed" });
+        expect(store.getState().report.narration?.status).toBe("failed");
+        store.getState().setNarration("other-run", { status: "completed" });
+        expect(store.getState().report.narration?.status).toBe("failed");
+        store.getState().beginReport(snapshot());
+        expect(store.getState().report.narration).toBeUndefined();
     });
 });

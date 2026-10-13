@@ -10,14 +10,17 @@ import { createDebouncedSessionStorage } from "./debouncedStorage";
 import { ANNOTATION_INFO, type Annotation } from "@/utils/annotation";
 import { getPGN } from "@/utils/chess";
 import { parseSanOrUci, positionFromFen } from "@/utils/chessops";
+import type { MoveCommentaryResult } from "@/utils/commentary/report";
+import type { GameNarrative, MoveCommentary } from "@/utils/commentary/types";
+import { type MainlineSnapshot, samePosition } from "@/utils/commentary/snapshot";
 import { isPrefix } from "@/utils/misc";
-import { getAnnotation } from "@/utils/score";
 import { playSound } from "@/utils/sound";
 import {
     createNode,
     defaultTree,
     type GameHeaders,
     getNodeAtPath,
+    type NarrationState,
     type TreeNode,
     type TreeState,
     treeIteratorMainLine,
@@ -72,15 +75,36 @@ export interface TreeStoreState extends TreeState {
     setFen: (fen: string) => void;
 
     addAnalysis: (
-        analysis: {
-            best: BestMoves[];
-            novelty: boolean;
-            is_sacrifice: boolean;
-        }[],
-        options?: { showVariations: boolean },
+        analysis: AnalysisEntry[],
+        glyphs: (Annotation | null)[],
+        options?: AddAnalysisOptions,
     ) => void;
 
+    applyReport: (
+        analysis: AnalysisEntry[],
+        glyphs: (Annotation | null)[],
+        options: AddAnalysisOptions,
+        commentary: (MoveCommentaryResult | null)[],
+        narrative?: GameNarrative | null,
+    ) => void;
+    appendComment: (path: number[], text: string) => void;
+    /** Stores an on-demand explanation on the node at `path` (any line, not only the mainline). */
+    keepCommentary: (path: number[], fenBefore: string, commentary: MoveCommentary) => void;
+    /**
+     * Replaces the commentary of mainline moves with narrated records. A record is written only
+     * while `runId` is the report's run and the node at its index is still the move it was written
+     * for (same SAN, played from the same position).
+     */
+    applyCommentary: (
+        runId: string,
+        writes: CommentaryWrite[],
+        narrative?: GameNarrative | null,
+    ) => void;
+    setNarration: (runId: string, narration: NarrationState) => void;
+
     setReportInProgress: (value: boolean) => void;
+    beginReport: (snapshot: MainlineSnapshot) => void;
+    endReport: (runId: string) => void;
 
     practicePath: number[] | null;
     setPracticePath: (path: number[] | null) => void;
@@ -91,6 +115,28 @@ export interface TreeStoreState extends TreeState {
 }
 
 export type TreeStore = ReturnType<typeof createTreeStore>;
+
+/** One position of a report: the engine lines and the FEN they were searched on. */
+export interface AnalysisEntry {
+    best: BestMoves[];
+    novelty: boolean;
+    is_sacrifice: boolean;
+    fen: string;
+}
+
+export interface CommentaryWrite {
+    /** Mainline position index of the node after the move. */
+    index: number;
+    fenBefore: string;
+    san: string;
+    commentary: MoveCommentary;
+}
+
+export interface AddAnalysisOptions {
+    showVariations: boolean;
+    /** When set, nothing is written unless it matches `report.runId`. */
+    runId?: string;
+}
 
 export const createTreeStore = (id?: string, initialTree?: TreeState) => {
     const stateCreator: StateCreator<TreeStoreState> = (set, get) => ({
@@ -485,11 +531,91 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
                     }
                 }),
             ),
-        addAnalysis: (analysis, options) =>
+        addAnalysis: (analysis, glyphs, options) =>
             set(
                 produce((state) => {
+                    if (options?.runId !== undefined && state.report.runId !== options.runId) {
+                        return;
+                    }
                     state.dirty = true;
-                    addAnalysis(state, analysis, options);
+                    addAnalysis(state, analysis, glyphs, options);
+                }),
+            ),
+
+        applyReport: (analysis, glyphs, options, commentary, narrative) =>
+            set(
+                produce((state) => {
+                    if (options.runId !== undefined && state.report.runId !== options.runId) {
+                        return;
+                    }
+                    state.dirty = true;
+                    addAnalysis(state, analysis, glyphs, options, commentary);
+                    if (narrative) {
+                        state.report.narrative = narrative;
+                    } else {
+                        delete state.report.narrative;
+                    }
+                }),
+            ),
+
+        applyCommentary: (runId, writes, narrative) =>
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (state.report.runId !== runId) {
+                        return;
+                    }
+                    for (const write of writes) {
+                        let parent: TreeNode | undefined;
+                        let node: TreeNode | undefined = state.root;
+                        for (let i = 0; i < write.index && node; i++) {
+                            parent = node;
+                            node = node.children[0];
+                        }
+                        if (
+                            node &&
+                            parent &&
+                            node.san === write.san &&
+                            samePosition(parent.fen, write.fenBefore)
+                        ) {
+                            node.commentary = write.commentary;
+                            state.dirty = true;
+                        }
+                    }
+                    if (narrative) {
+                        state.report.narrative = narrative;
+                        state.dirty = true;
+                    }
+                }),
+            ),
+
+        setNarration: (runId, narration) =>
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (state.report.runId === runId) {
+                        state.report.narration = narration;
+                    }
+                }),
+            ),
+
+        keepCommentary: (path, fenBefore, commentary) =>
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (path.length === 0) return;
+                    const parent = getNodeAtPath(state.root, path.slice(0, -1));
+                    const node = getNodeAtPath(state.root, path);
+                    if (node && parent && node !== parent && samePosition(parent.fen, fenBefore)) {
+                        node.commentary = commentary;
+                        state.dirty = true;
+                    }
+                }),
+            ),
+
+        appendComment: (path, text) =>
+            set(
+                produce((state) => {
+                    const node = getNodeAtPath(state.root, path);
+                    state.dirty = true;
+                    node.comment = node.comment ? `${node.comment}\n\n${text}` : text;
                 }),
             ),
 
@@ -497,6 +623,26 @@ export const createTreeStore = (id?: string, initialTree?: TreeState) => {
             set(
                 produce((state: Draft<TreeStoreState>) => {
                     state.report.inProgress = value;
+                }),
+            );
+        },
+
+        beginReport: (snapshot) => {
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    state.report.inProgress = true;
+                    state.report.runId = snapshot.runId;
+                    delete state.report.narration;
+                }),
+            );
+        },
+
+        endReport: (runId) => {
+            set(
+                produce((state: Draft<TreeStoreState>) => {
+                    if (state.report.runId === runId) {
+                        state.report.inProgress = false;
+                    }
                 }),
             );
         },
@@ -690,44 +836,31 @@ function setShapes(state: TreeState, shapes: DrawShape[]) {
     return state;
 }
 
+// Writes a report onto the mainline. Entry `i` is written to the i-th mainline node only while
+// that node and its parent are the positions the engine searched; the first mismatch (a promoted
+// variation, a deleted move, a different game) ends the walk.
 function addAnalysis(
     state: TreeState,
-    analysis: {
-        best: BestMoves[];
-        novelty: boolean;
-        is_sacrifice: boolean;
-    }[],
-    options?: { showVariations: boolean },
+    analysis: AnalysisEntry[],
+    glyphs: (Annotation | null)[],
+    options?: AddAnalysisOptions,
+    commentary?: (MoveCommentaryResult | null)[],
 ) {
     let cur = state.root;
     let i = 0;
     let parent: TreeNode | undefined;
 
     while (cur !== undefined && i < analysis.length) {
+        if (
+            !samePosition(cur.fen, analysis[i].fen) ||
+            (parent && !samePosition(parent.fen, analysis[i - 1].fen))
+        ) {
+            break;
+        }
         const [pos] = positionFromFen(cur.fen);
         if (pos && !pos.isEnd() && analysis[i].best.length > 0) {
             cur.score = analysis[i].best[0].score;
-            let prevScore = null;
-            let prevprevScore = null;
-            let prevMoves: BestMoves[] = [];
-            if (i > 0) {
-                prevScore = analysis[i - 1].best[0].score;
-                prevMoves = analysis[i - 1].best;
-            }
-            if (i > 1) {
-                prevprevScore = analysis[i - 2].best[0].score;
-            }
-            const curScore = analysis[i].best[0].score;
-            const color = cur.halfMoves % 2 === 1 ? "white" : "black";
-            const annotation = getAnnotation(
-                prevprevScore?.value || null,
-                prevScore?.value || null,
-                curScore.value,
-                color,
-                prevMoves,
-                analysis[i].is_sacrifice,
-                cur.san || "",
-            );
+            const annotation = glyphs[i];
             if (annotation) {
                 cur.annotations = [...cur.annotations, annotation];
 
@@ -802,8 +935,28 @@ function addAnalysis(
                 ANNOTATION_INFO[a].nag > ANNOTATION_INFO[b].nag ? 1 : -1,
             );
         }
+        if (commentary) {
+            writeCommentary(cur, commentary[i] ?? null);
+        }
         parent = cur;
         cur = cur.children[0];
         i++;
+    }
+}
+
+// Generated output of a report run: the extended glyphs join the annotations, and the commentary
+// replaces any earlier record (a move with no commentary this run loses a stale one). The user's
+// comment and shapes are never touched.
+function writeCommentary(node: TreeNode, result: MoveCommentaryResult | null) {
+    if (result && result.extended.length > 0) {
+        node.annotations = [...new Set([...node.annotations, ...result.extended])];
+        node.annotations.sort((a, b) => (ANNOTATION_INFO[a].nag > ANNOTATION_INFO[b].nag ? 1 : -1));
+    }
+    if (result?.commentary) {
+        if (node.commentary?.fingerprint !== result.commentary.fingerprint) {
+            node.commentary = result.commentary;
+        }
+    } else {
+        delete node.commentary;
     }
 }

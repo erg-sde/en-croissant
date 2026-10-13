@@ -20,6 +20,7 @@ import {
   IconFlag,
   IconFolder,
   IconKeyboard,
+  IconMessage2,
   IconMouse,
   IconReload,
   IconSearch,
@@ -65,6 +66,13 @@ import { keyMapAtom } from "@/state/keybinds";
 import FileInput from "../common/FileInput";
 import BoardSelect from "./BoardSelect";
 import ColorControl from "./ColorControl";
+import {
+  CommentaryDetailSelect,
+  CommentaryPerspectiveSelect,
+  CommentarySwitch,
+  NarrationSwitch,
+  NarratorSettings,
+} from "./CommentarySettings";
 import FontSizeSlider from "./FontSizeSlider";
 import KeybindInput from "./KeybindInput";
 import PiecesSelect from "./PiecesSelect";
@@ -84,6 +92,7 @@ type SettingCategory =
   | "keybinds"
   | "directories"
   | "repertoire"
+  | "commentary"
   | "privacy";
 
 interface SettingItem {
@@ -615,6 +624,63 @@ export default function Page() {
           />
         ),
       },
+      // Commentary settings
+      {
+        id: "commentary-explain",
+        category: "commentary",
+        title: t("Settings.Commentary.Explain"),
+        description: t("Settings.Commentary.Explain.Desc"),
+        keywords: ["commentary", "explain", "report", "explanation"],
+        render: () => <CommentarySwitch field="explain" />,
+      },
+      {
+        id: "commentary-detail",
+        category: "commentary",
+        title: t("Settings.Commentary.Detail"),
+        description: t("Settings.Commentary.Detail.Desc"),
+        keywords: ["commentary", "detail", "mistakes", "moves"],
+        render: () => <CommentaryDetailSelect />,
+      },
+      {
+        id: "commentary-extended-glyphs",
+        category: "commentary",
+        title: t("Settings.Commentary.ExtendedGlyphs"),
+        description: t("Settings.Commentary.ExtendedGlyphs.Desc"),
+        keywords: ["commentary", "glyph", "nag", "annotation", "only move", "miss"],
+        render: () => <CommentarySwitch field="extendedGlyphs" />,
+      },
+      {
+        id: "commentary-threat-lines",
+        category: "commentary",
+        title: t("Settings.Commentary.ThreatLines"),
+        description: t("Settings.Commentary.ThreatLines.Desc"),
+        keywords: ["commentary", "threat", "null move", "report"],
+        render: () => <CommentarySwitch field="threatLines" />,
+      },
+      {
+        id: "commentary-perspective",
+        category: "commentary",
+        title: t("Settings.Commentary.Perspective"),
+        description: t("Settings.Commentary.Perspective.Desc"),
+        keywords: ["commentary", "perspective", "you", "player"],
+        render: () => <CommentaryPerspectiveSelect />,
+      },
+      {
+        id: "commentary-llm",
+        category: "commentary",
+        title: t("Settings.Commentary.Llm"),
+        description: t("Settings.Commentary.Llm.Desc"),
+        keywords: ["commentary", "llm", "ai", "model", "narrate", "anthropic", "ollama"],
+        render: () => <NarrationSwitch />,
+      },
+      {
+        id: "commentary-narrator",
+        category: "commentary",
+        title: t("Settings.Commentary.Narrator"),
+        description: t("Settings.Commentary.Narrator.Desc"),
+        keywords: ["commentary", "api key", "provider", "model", "base url", "anthropic", "ollama"],
+        render: () => <NarratorSettings />,
+      },
       // Privacy settings
       {
         id: "telemetry",
@@ -697,6 +763,11 @@ export default function Page() {
         title: t("Settings.Repertoire"),
         description: t("Settings.Repertoire.Desc"),
         icon: <IconBook size="1rem" />,
+      },
+      commentary: {
+        title: t("Settings.Commentary"),
+        description: t("Settings.Commentary.Desc"),
+        icon: <IconMessage2 size="1rem" />,
       },
       privacy: {
         title: t("Settings.Privacy"),
@@ -840,6 +911,9 @@ export default function Page() {
             <Tabs.Tab value="repertoire" leftSection={<IconBook size="1rem" />}>
               {t("Settings.Repertoire")}
             </Tabs.Tab>
+            <Tabs.Tab value="commentary" leftSection={<IconMessage2 size="1rem" />}>
+              {t("Settings.Commentary")}
+            </Tabs.Tab>
             <Tabs.Tab value="privacy" leftSection={<IconShield size="1rem" />}>
               {t("Settings.Privacy")}
             </Tabs.Tab>
@@ -951,6 +1025,16 @@ export default function Page() {
                     {t("Settings.Repertoire.Desc")}
                   </Text>
                   {renderCategorySettings("repertoire")}
+                </Tabs.Panel>
+
+                <Tabs.Panel value="commentary">
+                  <Text size="lg" fw={500} className={classes.title}>
+                    {t("Settings.Commentary")}
+                  </Text>
+                  <Text size="xs" c="dimmed" mt={3} mb="lg">
+                    {t("Settings.Commentary.Desc")}
+                  </Text>
+                  {renderCategorySettings("commentary")}
                 </Tabs.Panel>
 
                 <Tabs.Panel value="privacy">
