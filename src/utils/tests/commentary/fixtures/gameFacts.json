@@ -1,0 +1,1462 @@
+{
+  "scholarsMate": {
+    "fens": [
+      "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+      "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+      "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+      "rnbqkbnr/pppp1ppp/8/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 1 2",
+      "r1bqkbnr/pppp1ppp/2n5/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 2 3",
+      "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+      "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+      "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4"
+    ],
+    "moves": [
+      null,
+      {
+        "after": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 0,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 0,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": null,
+        "criticality": [],
+        "delta": {
+          "kingZoneDelta": 0,
+          "materialChange": 0,
+          "newlyAttacked": [],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 30
+            },
+            "win": 52.75875473022461
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 30
+            },
+            "win": 52.75875473022461
+          },
+          "winDelta": 0.0
+        },
+        "fenAfter": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "fenBefore": "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1",
+        "index": 1,
+        "lines": [
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 30
+              },
+              "win": 52.75875473022461
+            },
+            "id": 0,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "cp": 30,
+              "kind": "eval"
+            },
+            "pvSan": ["e4", "e5"],
+            "pvUci": ["e2e4", "e7e5"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 25
+              },
+              "win": 52.299678802490234
+            },
+            "id": 1,
+            "motifs": [],
+            "multipv": 2,
+            "origin": "before",
+            "outcome": {
+              "cp": 25,
+              "kind": "eval"
+            },
+            "pvSan": ["d4", "d5"],
+            "pvUci": ["d2d4", "d7d5"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 30
+              },
+              "win": 52.75875473022461
+            },
+            "id": 2,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "after",
+            "outcome": {
+              "cp": 30,
+              "kind": "eval"
+            },
+            "pvSan": ["e5", "Nf3"],
+            "pvUci": ["e7e5", "g1f3"],
+            "shownPlies": 2
+          }
+        ],
+        "mover": "white",
+        "novelty": false,
+        "opening": null,
+        "played": {
+          "captured": null,
+          "from": "e2",
+          "givesCheck": false,
+          "givesMate": false,
+          "isCapture": false,
+          "isCastle": false,
+          "piece": "pawn",
+          "promotion": null,
+          "rank": 1,
+          "san": "e4",
+          "see": null,
+          "to": "e4",
+          "uci": "e2e4"
+        },
+        "refutation": 2,
+        "schemaVersion": 1,
+        "second": 1,
+        "terminal": false,
+        "threat": null,
+        "time": null
+      },
+      {
+        "after": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 0,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 0,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": null,
+        "criticality": [],
+        "delta": {
+          "kingZoneDelta": 0,
+          "materialChange": 0,
+          "newlyAttacked": [],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 35
+            },
+            "win": 46.78262710571289
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 30
+            },
+            "win": 47.24124526977539
+          },
+          "winDelta": 0.4586181640625
+        },
+        "fenAfter": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "fenBefore": "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1",
+        "index": 2,
+        "lines": [
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 30
+              },
+              "win": 47.24124526977539
+            },
+            "id": 0,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "cp": 30,
+              "kind": "eval"
+            },
+            "pvSan": ["e5", "Nf3"],
+            "pvUci": ["e7e5", "g1f3"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 35
+              },
+              "win": 46.78262710571289
+            },
+            "id": 1,
+            "motifs": [],
+            "multipv": 2,
+            "origin": "before",
+            "outcome": {
+              "cp": 35,
+              "kind": "eval"
+            },
+            "pvSan": ["c5", "Nf3"],
+            "pvUci": ["c7c5", "g1f3"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 35
+              },
+              "win": 46.78262710571289
+            },
+            "id": 2,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "after",
+            "outcome": {
+              "cp": 35,
+              "kind": "eval"
+            },
+            "pvSan": ["Nf3", "Nc6"],
+            "pvUci": ["g1f3", "b8c6"],
+            "shownPlies": 2
+          }
+        ],
+        "mover": "black",
+        "novelty": false,
+        "opening": null,
+        "played": {
+          "captured": null,
+          "from": "e7",
+          "givesCheck": false,
+          "givesMate": false,
+          "isCapture": false,
+          "isCastle": false,
+          "piece": "pawn",
+          "promotion": null,
+          "rank": 1,
+          "san": "e5",
+          "see": null,
+          "to": "e5",
+          "uci": "e7e5"
+        },
+        "refutation": 2,
+        "schemaVersion": 1,
+        "second": 1,
+        "terminal": false,
+        "threat": null,
+        "time": null
+      },
+      {
+        "after": {
+          "hanging": [
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "black",
+              "square": "e5"
+            }
+          ],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 1,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 0,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": 0,
+        "criticality": [],
+        "delta": {
+          "kingZoneDelta": 1,
+          "materialChange": 0,
+          "newlyAttacked": [
+            {
+              "attacker": "queen",
+              "defended": false,
+              "from": "h5",
+              "target": "pawn",
+              "to": "e5"
+            },
+            {
+              "attacker": "queen",
+              "defended": true,
+              "from": "h5",
+              "target": "pawn",
+              "to": "f7"
+            },
+            {
+              "attacker": "queen",
+              "defended": true,
+              "from": "h5",
+              "target": "pawn",
+              "to": "h7"
+            }
+          ],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 0
+            },
+            "win": 50.0
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 35
+            },
+            "win": 53.217369079589844
+          },
+          "winDelta": 3.2173690795898438
+        },
+        "fenAfter": "rnbqkbnr/pppp1ppp/8/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 1 2",
+        "fenBefore": "rnbqkbnr/pppp1ppp/8/4p3/4P3/8/PPPP1PPP/RNBQKBNR w KQkq - 0 2",
+        "index": 3,
+        "lines": [
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 35
+              },
+              "win": 53.217369079589844
+            },
+            "id": 0,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "cp": 35,
+              "kind": "eval"
+            },
+            "pvSan": ["Nf3", "Nc6"],
+            "pvUci": ["g1f3", "b8c6"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 0
+              },
+              "win": 50.0
+            },
+            "id": 1,
+            "motifs": [
+              {
+                "absolute": true,
+                "attacker": "h5",
+                "behind": "e8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "absolute": false,
+                "attacker": "h5",
+                "behind": "h8",
+                "kind": "pin",
+                "pinned": "h7"
+              }
+            ],
+            "multipv": 2,
+            "origin": "before",
+            "outcome": {
+              "cp": 0,
+              "kind": "eval"
+            },
+            "pvSan": ["Qh5", "Nc6"],
+            "pvUci": ["d1h5", "b8c6"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 0
+              },
+              "win": 50.0
+            },
+            "id": 2,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "c4",
+                "behind": "g8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "from": "h5",
+                "kind": "mateThreat",
+                "to": "f7"
+              }
+            ],
+            "multipv": 1,
+            "origin": "after",
+            "outcome": {
+              "cp": 0,
+              "kind": "eval"
+            },
+            "pvSan": ["Nc6", "Bc4"],
+            "pvUci": ["b8c6", "f1c4"],
+            "shownPlies": 2
+          }
+        ],
+        "mover": "white",
+        "novelty": false,
+        "opening": {
+          "eco": "C20",
+          "lastNamedIndex": 3,
+          "name": "King's Pawn Game: Wayward Queen Attack"
+        },
+        "played": {
+          "captured": null,
+          "from": "d1",
+          "givesCheck": false,
+          "givesMate": false,
+          "isCapture": false,
+          "isCastle": false,
+          "piece": "queen",
+          "promotion": null,
+          "rank": 2,
+          "san": "Qh5",
+          "see": null,
+          "to": "h5",
+          "uci": "d1h5"
+        },
+        "refutation": 2,
+        "schemaVersion": 1,
+        "second": 1,
+        "terminal": false,
+        "threat": null,
+        "time": null
+      },
+      {
+        "after": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 1,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "black",
+              "square": "e5"
+            }
+          ],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 1,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": null,
+        "criticality": [],
+        "delta": {
+          "kingZoneDelta": 0,
+          "materialChange": 0,
+          "newlyAttacked": [],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 0
+            },
+            "win": 50.0
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 0
+            },
+            "win": 50.0
+          },
+          "winDelta": 0.0
+        },
+        "fenAfter": "r1bqkbnr/pppp1ppp/2n5/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 2 3",
+        "fenBefore": "rnbqkbnr/pppp1ppp/8/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR b KQkq - 1 2",
+        "index": 4,
+        "lines": [
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 0
+              },
+              "win": 50.0
+            },
+            "id": 0,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "c4",
+                "behind": "g8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "from": "h5",
+                "kind": "mateThreat",
+                "to": "f7"
+              }
+            ],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "cp": 0,
+              "kind": "eval"
+            },
+            "pvSan": ["Nc6", "Bc4"],
+            "pvUci": ["b8c6", "f1c4"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": -10
+              },
+              "win": 50.920413970947266
+            },
+            "id": 1,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "f3",
+                "behind": "f8",
+                "kind": "pin",
+                "pinned": "f7"
+              }
+            ],
+            "multipv": 2,
+            "origin": "before",
+            "outcome": {
+              "cp": -10,
+              "kind": "eval"
+            },
+            "pvSan": ["g6", "Qf3"],
+            "pvUci": ["g7g6", "h5f3"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 0
+              },
+              "win": 50.0
+            },
+            "id": 2,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "c4",
+                "behind": "g8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "from": "h5",
+                "kind": "mateThreat",
+                "to": "f7"
+              }
+            ],
+            "multipv": 1,
+            "origin": "after",
+            "outcome": {
+              "cp": 0,
+              "kind": "eval"
+            },
+            "pvSan": ["Bc4", "g6"],
+            "pvUci": ["f1c4", "g7g6"],
+            "shownPlies": 2
+          }
+        ],
+        "mover": "black",
+        "novelty": false,
+        "opening": null,
+        "played": {
+          "captured": null,
+          "from": "b8",
+          "givesCheck": false,
+          "givesMate": false,
+          "isCapture": false,
+          "isCastle": false,
+          "piece": "knight",
+          "promotion": null,
+          "rank": 1,
+          "san": "Nc6",
+          "see": null,
+          "to": "c6",
+          "uci": "b8c6"
+        },
+        "refutation": 2,
+        "schemaVersion": 1,
+        "second": 1,
+        "terminal": false,
+        "threat": null,
+        "time": null
+      },
+      {
+        "after": {
+          "hanging": [
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "black",
+              "square": "f7"
+            }
+          ],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 2,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 1,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": null,
+        "criticality": [],
+        "delta": {
+          "kingZoneDelta": 1,
+          "materialChange": 0,
+          "newlyAttacked": [
+            {
+              "attacker": "bishop",
+              "defended": true,
+              "from": "c4",
+              "target": "pawn",
+              "to": "f7"
+            }
+          ],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": -30
+            },
+            "win": 47.24124526977539
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": 0
+            },
+            "win": 50.0
+          },
+          "winDelta": 2.7587547302246094
+        },
+        "fenAfter": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+        "fenBefore": "r1bqkbnr/pppp1ppp/2n5/4p2Q/4P3/8/PPPP1PPP/RNB1KBNR w KQkq - 2 3",
+        "index": 5,
+        "lines": [
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": 0
+              },
+              "win": 50.0
+            },
+            "id": 0,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "c4",
+                "behind": "g8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "from": "h5",
+                "kind": "mateThreat",
+                "to": "f7"
+              }
+            ],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "cp": 0,
+              "kind": "eval"
+            },
+            "pvSan": ["Bc4", "g6"],
+            "pvUci": ["f1c4", "g7g6"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": -10
+              },
+              "win": 49.079586029052734
+            },
+            "id": 1,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "f3",
+                "behind": "f8",
+                "kind": "pin",
+                "pinned": "f7"
+              }
+            ],
+            "multipv": 2,
+            "origin": "before",
+            "outcome": {
+              "cp": -10,
+              "kind": "eval"
+            },
+            "pvSan": ["Qf3", "Nf6"],
+            "pvUci": ["h5f3", "g8f6"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": -30
+              },
+              "win": 47.24124526977539
+            },
+            "id": 2,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "f3",
+                "behind": "f8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "from": "f3",
+                "kind": "mateThreat",
+                "to": "f7"
+              }
+            ],
+            "multipv": 1,
+            "origin": "after",
+            "outcome": {
+              "cp": -30,
+              "kind": "eval"
+            },
+            "pvSan": ["g6", "Qf3"],
+            "pvUci": ["g7g6", "h5f3"],
+            "shownPlies": 2
+          }
+        ],
+        "mover": "white",
+        "novelty": false,
+        "opening": null,
+        "played": {
+          "captured": null,
+          "from": "f1",
+          "givesCheck": false,
+          "givesMate": false,
+          "isCapture": false,
+          "isCastle": false,
+          "piece": "bishop",
+          "promotion": null,
+          "rank": 1,
+          "san": "Bc4",
+          "see": null,
+          "to": "c4",
+          "uci": "f1c4"
+        },
+        "refutation": 2,
+        "schemaVersion": 1,
+        "second": 1,
+        "terminal": false,
+        "threat": null,
+        "time": null
+      },
+      {
+        "after": {
+          "hanging": [
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "white",
+              "square": "e4"
+            },
+            {
+              "kind": "hanging",
+              "piece": "queen",
+              "see": -9,
+              "side": "white",
+              "square": "h5"
+            },
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "black",
+              "square": "f7"
+            }
+          ],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 2,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "black",
+              "square": "f7"
+            }
+          ],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 2,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": 0,
+        "criticality": [
+          {
+            "kind": "mateCreated",
+            "mateIn": 1
+          }
+        ],
+        "delta": {
+          "kingZoneDelta": 0,
+          "materialChange": 0,
+          "newlyAttacked": [
+            {
+              "attacker": "knight",
+              "defended": false,
+              "from": "f6",
+              "target": "pawn",
+              "to": "e4"
+            },
+            {
+              "attacker": "knight",
+              "defended": false,
+              "from": "f6",
+              "target": "queen",
+              "to": "h5"
+            }
+          ],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 20,
+            "value": {
+              "type": "mate",
+              "value": 1
+            },
+            "win": 2.4552536010742188
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "cp",
+              "value": -30
+            },
+            "win": 52.75875473022461
+          },
+          "winDelta": 50.30350112915039
+        },
+        "fenAfter": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+        "fenBefore": "r1bqkbnr/pppp1ppp/2n5/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 3 3",
+        "index": 6,
+        "lines": [
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": -30
+              },
+              "win": 52.75875473022461
+            },
+            "id": 0,
+            "motifs": [
+              {
+                "absolute": false,
+                "attacker": "f3",
+                "behind": "f8",
+                "kind": "pin",
+                "pinned": "f7"
+              },
+              {
+                "from": "f3",
+                "kind": "mateThreat",
+                "to": "f7"
+              }
+            ],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "cp": -30,
+              "kind": "eval"
+            },
+            "pvSan": ["g6", "Qf3"],
+            "pvUci": ["g7g6", "h5f3"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "engineEnd",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "cp",
+                "value": -10
+              },
+              "win": 50.920413970947266
+            },
+            "id": 1,
+            "motifs": [],
+            "multipv": 2,
+            "origin": "before",
+            "outcome": {
+              "cp": -10,
+              "kind": "eval"
+            },
+            "pvSan": ["Qe7", "Nf3"],
+            "pvUci": ["d8e7", "g1f3"],
+            "shownPlies": 2
+          },
+          {
+            "cutReason": "mate",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "mate",
+                "value": 1
+              },
+              "win": 2.4552536010742188
+            },
+            "id": 2,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "after",
+            "outcome": {
+              "kind": "mate",
+              "mateIn": 1,
+              "pvReachesMate": true
+            },
+            "pvSan": ["Qxf7#"],
+            "pvUci": ["h5f7"],
+            "shownPlies": 1
+          }
+        ],
+        "mover": "black",
+        "novelty": false,
+        "opening": null,
+        "played": {
+          "captured": null,
+          "from": "g8",
+          "givesCheck": false,
+          "givesMate": false,
+          "isCapture": false,
+          "isCastle": false,
+          "piece": "knight",
+          "promotion": null,
+          "rank": null,
+          "san": "Nf6",
+          "see": null,
+          "to": "f6",
+          "uci": "g8f6"
+        },
+        "refutation": 2,
+        "schemaVersion": 1,
+        "second": 1,
+        "terminal": false,
+        "threat": null,
+        "time": null
+      },
+      {
+        "after": {
+          "hanging": [],
+          "inCheck": true,
+          "kingZoneAttackers": {
+            "black": 2,
+            "white": 0
+          },
+          "material": {
+            "black": 38,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "before": {
+          "hanging": [
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "white",
+              "square": "e4"
+            },
+            {
+              "kind": "hanging",
+              "piece": "queen",
+              "see": -9,
+              "side": "white",
+              "square": "h5"
+            },
+            {
+              "kind": "hanging",
+              "piece": "pawn",
+              "see": -1,
+              "side": "black",
+              "square": "f7"
+            }
+          ],
+          "inCheck": false,
+          "kingZoneAttackers": {
+            "black": 2,
+            "white": 0
+          },
+          "material": {
+            "black": 39,
+            "white": 39
+          },
+          "openFiles": [],
+          "pawns": {
+            "black": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            },
+            "white": {
+              "doubled": [],
+              "isolated": [],
+              "passed": []
+            }
+          }
+        },
+        "best": null,
+        "criticality": [],
+        "delta": {
+          "kingZoneDelta": 0,
+          "materialChange": 1,
+          "newlyAttacked": [
+            {
+              "attacker": "queen",
+              "defended": true,
+              "from": "f7",
+              "target": "knight",
+              "to": "f6"
+            },
+            {
+              "attacker": "queen",
+              "defended": true,
+              "from": "f7",
+              "target": "pawn",
+              "to": "d7"
+            },
+            {
+              "attacker": "queen",
+              "defended": true,
+              "from": "f7",
+              "target": "pawn",
+              "to": "g7"
+            },
+            {
+              "attacker": "queen",
+              "defended": true,
+              "from": "f7",
+              "target": "bishop",
+              "to": "f8"
+            }
+          ],
+          "newlyHanging": []
+        },
+        "eval": {
+          "after": {
+            "depth": 0,
+            "value": {
+              "type": "mate",
+              "value": 0
+            },
+            "win": 100.0
+          },
+          "before": {
+            "depth": 20,
+            "value": {
+              "type": "mate",
+              "value": 1
+            },
+            "win": 97.54473876953125
+          },
+          "winDelta": -2.45526123046875
+        },
+        "fenAfter": "r1bqkb1r/pppp1Qpp/2n2n2/4p3/2B1P3/8/PPPP1PPP/RNB1K1NR b KQkq - 0 4",
+        "fenBefore": "r1bqkb1r/pppp1ppp/2n2n2/4p2Q/2B1P3/8/PPPP1PPP/RNB1K1NR w KQkq - 4 4",
+        "index": 7,
+        "lines": [
+          {
+            "cutReason": "mate",
+            "eval": {
+              "depth": 20,
+              "value": {
+                "type": "mate",
+                "value": 1
+              },
+              "win": 97.54473876953125
+            },
+            "id": 0,
+            "motifs": [],
+            "multipv": 1,
+            "origin": "before",
+            "outcome": {
+              "kind": "mate",
+              "mateIn": 1,
+              "pvReachesMate": true
+            },
+            "pvSan": ["Qxf7#"],
+            "pvUci": ["h5f7"],
+            "shownPlies": 1
+          }
+        ],
+        "mover": "white",
+        "novelty": false,
+        "opening": null,
+        "played": {
+          "captured": "pawn",
+          "from": "h5",
+          "givesCheck": true,
+          "givesMate": true,
+          "isCapture": true,
+          "isCastle": false,
+          "piece": "queen",
+          "promotion": null,
+          "rank": 1,
+          "san": "Qxf7#",
+          "see": 1,
+          "to": "f7",
+          "uci": "h5f7"
+        },
+        "refutation": null,
+        "schemaVersion": 1,
+        "second": null,
+        "terminal": true,
+        "threat": null,
+        "time": null
+      }
+    ],
+    "result": "1-0"
+  }
+}

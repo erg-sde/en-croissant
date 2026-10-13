@@ -5,8 +5,11 @@ import { z } from "zod";
 import type { StoreApi } from "zustand";
 import { commands } from "@/bindings";
 import { type FileMetadata, fileMetadataSchema } from "@/components/files/file";
+import { writeSessionState } from "@/state/store/debouncedStorage";
 import type { TreeStoreState } from "@/state/store/tree";
 import { getPGN, parsePGN } from "./chess";
+import { commentaryForExport, withAnnotator } from "./commentary/export";
+import { readCommentarySettings } from "./commentary/settings";
 import { type GameHeaders, getGameName } from "./treeReducer";
 
 const INVALID_FILENAME_CHARS = /[\\/:*?"<>|]+/g;
@@ -120,7 +123,7 @@ export async function createTab({
                 tree.position = position;
             }
         }
-        sessionStorage.setItem(id, JSON.stringify({ version: 0, state: tree }));
+        writeSessionState(id, { version: 0, state: tree });
     }
 
     setTabs((prev) => {
@@ -168,12 +171,15 @@ export async function saveToFile({
             : undefined;
     const databaseOrigin = currentOrigin?.kind === "database" ? currentOrigin : undefined;
     const isTempFile = currentOrigin?.kind === "temp_file";
-    const pgn = `${getPGN(store.getState().root, {
-        headers: store.getState().headers,
+    const { root, headers: gameHeaders, report } = store.getState();
+    const exported = readCommentarySettings(localStorage).exportToPgn;
+    const pgn = `${getPGN(root, {
+        headers: exported ? withAnnotator(gameHeaders, root, report) : gameHeaders,
         comments: true,
         extraMarkups: true,
         glyphs: true,
         variations: true,
+        commentary: exported ? commentaryForExport(root, report) : null,
     })}\n\n`;
 
     if (databaseOrigin) {

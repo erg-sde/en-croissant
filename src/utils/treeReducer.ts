@@ -3,6 +3,8 @@ import type { Move } from "chessops";
 import { INITIAL_FEN } from "chessops/fen";
 import type { Outcome, Score } from "@/bindings";
 import type { Annotation } from "./annotation";
+import type { NarrationFailure } from "@/bindings";
+import type { GameNarrative, MoveCommentary } from "./commentary/types";
 import { positionFromFen } from "./chessops";
 
 export interface TreeState {
@@ -25,6 +27,8 @@ export interface TreeNode {
     annotations: Annotation[];
     comment: string;
     clock?: number;
+    /** Generated commentary; never written by the editor, never assigned by `createNode`. */
+    commentary?: MoveCommentary;
 }
 
 export type ListNode = {
@@ -195,4 +199,14 @@ export function getTreeStructureHash(node: TreeNode): string {
 
 export interface ReportState {
     inProgress: boolean;
+    /** Identity of the report run whose results may be written; set by `beginReport`. */
+    runId?: string;
+    narrative?: GameNarrative;
+    /** The state of the optional model narration of this run. */
+    narration?: NarrationState;
+}
+
+export interface NarrationState {
+    status: "running" | "completed" | "failed" | "cancelled";
+    failure?: NarrationFailure;
 }

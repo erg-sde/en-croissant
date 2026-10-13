@@ -92,6 +92,9 @@ pub enum Error {
 
     #[error("Analysis cancelled")]
     AnalysisCancelled,
+
+    #[error("An infinite search cannot be used here")]
+    InvalidGoMode,
 }
 
 impl From<std::io::Error> for Error {

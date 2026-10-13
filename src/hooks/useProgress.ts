@@ -19,6 +19,8 @@ export function useProgress(id: string) {
                     id: payload.id,
                     progress: payload.progress,
                     finished: payload.finished,
+                    stage: payload.stage,
+                    status: payload.status,
                 });
             }
         });
@@ -35,6 +37,7 @@ export function useProgress(id: string) {
     return {
         progress: item?.progress ?? 0,
         finished: item?.finished ?? false,
+        interrupted: item?.status === "cancelled" || item?.status === "failed",
         isActive: item !== null && !item.finished,
         clear,
         item,
