@@ -4,10 +4,12 @@
 )]
 
 mod chess;
+mod commentary;
 mod db;
 mod engine;
 mod error;
 mod game;
+mod jobs;
 
 mod fs;
 mod lexer;
@@ -22,10 +24,15 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chess::{BestMovesPayload, EngineProcess};
+use commentary::{
+    narrate::{narrate_game, test_narrator, NarrationChunk},
+    secrets::{clear_commentary_secret, get_commentary_secret_status, set_commentary_secret},
+};
 use dashmap::DashMap;
 use db::{DatabaseProgress, GameQuery, NormalizedGame, PositionStats};
 use derivative::Derivative;
 use game::GameManager;
+use jobs::JobRegistry;
 use progress::{clear_progress, get_progress, ProgressEvent, ProgressStore};
 
 use log::LevelFilter;
@@ -67,10 +74,10 @@ use crate::{
     },
     fs::{download_file, file_exists, get_file_metadata},
     opening::{
-        get_opening_from_fen, get_opening_from_fens, get_opening_from_name, search_opening_name,
+        get_opening_from_fen, get_opening_from_fens, get_opening_from_name, get_opening_match,
+        search_opening_name,
     },
 };
-use std::sync::atomic::AtomicBool;
 use tokio::sync::Semaphore;
 
 #[derive(Derivative)]
@@ -89,7 +96,7 @@ pub struct AppState {
     pgn_offsets: DashMap<String, Vec<u64>>,
 
     engine_processes: DashMap<(String, String), Arc<tokio::sync::Mutex<EngineProcess>>>,
-    analysis_cancel_flags: DashMap<String, Arc<AtomicBool>>,
+    jobs: JobRegistry,
     auth: AuthState,
     game_manager: GameManager,
     progress_state: ProgressStore,
@@ -122,6 +129,7 @@ fn main() {
             search_opening_name,
             get_opening_from_fen,
             get_opening_from_fens,
+            get_opening_match,
             get_opening_from_name,
             get_players_game_info,
             get_engine_config,
@@ -168,7 +176,12 @@ fn main() {
             preload_reference_db,
             get_progress,
             clear_progress,
-            get_sound_server_port
+            get_sound_server_port,
+            narrate_game,
+            test_narrator,
+            set_commentary_secret,
+            clear_commentary_secret,
+            get_commentary_secret_status
         ))
         .events(tauri_specta::collect_events!(
             BestMovesPayload,
@@ -176,8 +189,19 @@ fn main() {
             ProgressEvent,
             GameMoveEvent,
             ClockUpdateEvent,
-            GameOverEvent
-        ));
+            GameOverEvent,
+            NarrationChunk
+        ))
+        // Commentary types the frontend builds and validates against; no command returns them.
+        .typ::<commentary::facts::FactVocabulary>()
+        .typ::<commentary::facts::FactKind>()
+        .typ::<commentary::facts::CommentaryKind>()
+        .typ::<commentary::facts::Perspective>()
+        .typ::<commentary::narrate::NarratedSentence>()
+        .constant(
+            "FACTS_SCHEMA_VERSION",
+            commentary::facts::FACTS_SCHEMA_VERSION,
+        );
 
     #[cfg(debug_assertions)]
     specta_builder

@@ -1,5 +1,12 @@
 import { expect, test } from "vitest";
-import { formatScore, getAccuracy, getAnnotation, getCPLoss, getWinChance } from "../score";
+import {
+    formatScore,
+    getAccuracy,
+    getAnnotation,
+    getCPLoss,
+    getWinChance,
+    normalizeScore,
+} from "../score";
 
 test("should format a positive cp score correctly", () => {
     expect(formatScore({ type: "cp", value: 50 })).toBe("+0.50");
@@ -50,4 +57,17 @@ test("should annotate as ?!", () => {
 test("should not annotate", () => {
     expect(getAnnotation(null, null, { type: "cp", value: -50 }, "white", [])).toBe("");
     expect(getAnnotation(null, null, { type: "cp", value: 50 }, "black", [])).toBe("");
+});
+
+test("should normalize scores to the side's point of view", () => {
+    expect(normalizeScore({ type: "cp", value: 120 }, "white")).toBe(120);
+    expect(normalizeScore({ type: "cp", value: 120 }, "black")).toBe(-120);
+    expect(normalizeScore({ type: "cp", value: 4000 }, "white")).toBe(1000);
+    expect(normalizeScore({ type: "mate", value: 3 }, "black")).toBe(-1000);
+});
+
+test("should treat a DTZ score as decisive, not as centipawns", () => {
+    expect(normalizeScore({ type: "dtz", value: 30 }, "white")).toBe(1000);
+    expect(normalizeScore({ type: "dtz", value: -30 }, "white")).toBe(-1000);
+    expect(normalizeScore({ type: "dtz", value: 30 }, "black")).toBe(-1000);
 });
