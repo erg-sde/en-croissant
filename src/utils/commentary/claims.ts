@@ -27,7 +27,8 @@ const RELATION_WORDS: Record<string, Partial<Record<Relation, RegExp>>> = {
         hanging: /\bhang|\bundefended\b|\bunprotected\b|en prise/,
         winsMaterial: /\bwins?\b|\bwinning (a|the|material)\b|\bwon\b|\bpicks? up\b/,
         mates: /\bmate\b|\bmates\b|\bmating\b|checkmate/,
-        better: /\bbetter\b|\badvantage\b|\bthe upper hand\b/,
+        // "White is better", not "the better move".
+        better: /\b(white|black|you)\s+(is|are|was|were|stands?|stood)\s+(\w+\s+)?better\b|\badvantage\b|\bthe upper hand\b/,
         threatens: /\bthreat/,
     },
     de: {

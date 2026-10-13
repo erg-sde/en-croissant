@@ -192,6 +192,12 @@ function slotToken(name: string, slots: SlotValues): Token | null {
         case "p0":
         case "p1":
             return slots[name] ? { kind: "piece", ref: slots[name] } : null;
+        // The piece's name alone, e.g. "queen".
+        case "q0":
+        case "q1": {
+            const ref = slots[name === "q0" ? "p0" : "p1"];
+            return ref ? { kind: "pieceName", piece: ref.piece, ref } : null;
+        }
         case "s0":
         case "s1":
             return slots[name] ? { kind: "square", square: slots[name] } : null;
@@ -214,7 +220,8 @@ const SLOT_PLACEHOLDER = /\{\{(\w+)\}\}/g;
 /**
  * Renders a model-written template through the same substitution as `segmentize`: each `{{slot}}`
  * becomes its rendered value and is recorded as a reference. `problems` lists placeholders with no
- * value or an unknown name, and slots with a value the template never uses.
+ * value or an unknown name. A filled slot the template does not use is ignored: it puts nothing on
+ * screen.
  */
 export function renderSlots(
     template: string,
@@ -224,21 +231,14 @@ export function renderSlots(
 ): Segmented & { problems: string[] } {
     const refs = emptyRefs();
     const problems: string[] = [];
-    const used = new Set<string>();
     const text = template.replace(SLOT_PLACEHOLDER, (whole, name: string) => {
         const token = slotToken(name, slots);
         if (!token) {
             problems.push(`placeholder ${whole} has no value`);
             return whole;
         }
-        used.add(name);
         record(token, refs);
         return render(token, t, lang);
     });
-    for (const name of ["m0", "m1", "p0", "p1", "s0", "s1", "n0", "n1", "side", "pieces"]) {
-        if (slotToken(name, slots) && !used.has(name)) {
-            problems.push(`slot ${name} is not used`);
-        }
-    }
     return { template, text: capitalize(text, lang), refs, problems };
 }

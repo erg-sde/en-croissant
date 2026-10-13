@@ -103,7 +103,6 @@ class Boards {
  */
 function llmRules(
     draft: SentenceDraft,
-    literal: string,
     cited: EnumeratedFact[],
     facts: MoveFacts | null,
     lang: string,
@@ -111,8 +110,30 @@ function llmRules(
 ) {
     if (draft.claims === undefined) return;
     for (const problem of draft.problems ?? []) fail("literalInTemplate", problem);
-    for (const failure of claimFailures(draft.claims, literal, cited, facts, lang)) {
+    // The lexicons read the template's own words; `{{side}}` stands for a side ("White is better").
+    const words = draft.template.replace(PLACEHOLDER, (p) => (p === "{{side}}" ? "white" : ""));
+    for (const failure of claimFailures(draft.claims, words, cited, facts, lang)) {
         fail(failure.rule, failure.detail);
+    }
+}
+
+/** Rule 4: squares, digits and piece names written into a template instead of a slot. */
+function literalFailures(
+    literal: string,
+    ctx: ValidationContext,
+    fail: (rule: ValidationFailure["rule"], detail: string) => void,
+) {
+    if (SQUARE.test(literal)) fail("literalInTemplate", "square");
+    if (DIGIT.test(literal)) fail("literalInTemplate", "digit");
+    const lower = literal.toLocaleLowerCase(ctx.lang);
+    for (const word of ctx.pieceWords) {
+        const pattern = new RegExp(
+            `(^|[^\\p{L}])${word.toLocaleLowerCase(ctx.lang)}($|[^\\p{L}])`,
+            "u",
+        );
+        if (word && pattern.test(lower)) {
+            fail("literalInTemplate", `piece word ${word}`);
+        }
     }
 }
 
@@ -197,21 +218,8 @@ function check(
 
     // 4. The template carries no chess content of its own.
     const literal = template.replace(PLACEHOLDER, "");
-    if (SQUARE.test(literal) || DIGIT.test(literal)) {
-        fail("literalInTemplate", literal);
-    }
-    const lower = literal.toLocaleLowerCase(ctx.lang);
-    for (const word of ctx.pieceWords) {
-        if (
-            word &&
-            new RegExp(`(^|[^\\p{L}])${word.toLocaleLowerCase(ctx.lang)}($|[^\\p{L}])`, "u").test(
-                lower,
-            )
-        ) {
-            fail("literalInTemplate", word);
-        }
-    }
-    llmRules(draft, literal, citedFacts, facts, ctx.lang, fail);
+    literalFailures(literal, ctx, fail);
+    llmRules(draft, citedFacts, facts, ctx.lang, fail);
 
     // 8. No markup or jargon, and within budget.
     for (const [pattern, name] of FORBIDDEN) {
@@ -382,21 +390,14 @@ export function validateNarrative(
         }
 
         const literal = template.replace(PLACEHOLDER, "");
-        if (SQUARE.test(literal) || DIGIT.test(literal)) fail("literalInTemplate", literal);
-        const lower = literal.toLocaleLowerCase(ctx.lang);
-        for (const word of ctx.pieceWords) {
-            if (
-                word &&
-                draft.claims !== undefined &&
-                lower.includes(word.toLocaleLowerCase(ctx.lang))
-            ) {
-                fail("literalInTemplate", word);
-            }
+        if (draft.claims !== undefined) {
+            literalFailures(literal, ctx, fail);
+        } else if (SQUARE.test(literal) || DIGIT.test(literal)) {
+            fail("literalInTemplate", SQUARE.test(literal) ? "square" : "digit");
         }
         const moveCitations = cited.flatMap((c) => (c.move ? [c.move] : []));
         llmRules(
             draft,
-            literal,
             moveCitations.map((m) => m.fact),
             moveCitations[0]?.facts ?? null,
             ctx.lang,

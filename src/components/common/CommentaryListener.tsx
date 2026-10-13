@@ -26,7 +26,11 @@ export default function CommentaryListener() {
       const tally = (result: ValidationResult) => {
         checked += result.checked;
         dropped += result.dropped;
-        for (const f of result.failures) rules.set(f.rule, (rules.get(f.rule) ?? 0) + 1);
+        for (const f of result.failures) {
+          // Squares and numbers are blanked so the same reason counts once.
+          const key = `${f.rule} (${f.detail.replace(/[a-h][1-8]|\d+/g, "#")})`;
+          rules.set(key, (rules.get(key) ?? 0) + 1);
+        }
       };
       const writes = payload.items
         .map((item) => narratedMoveRecord(context, item, payload.served, tally))

@@ -294,6 +294,13 @@ upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribu
   turns chunks into records with the run context kept in `treeRegistry` (the last four runs, in
   memory; after a reload chunks are ignored and the drafts stay).
 - The model setting is free text, prefilled `claude-opus-5-5`.
+- After the first live runs (16 of 71 move sentences passed):
+  - **Response format.** The API rejected the first schema (67 union-typed parameters) and then a flattened one (grammar too large). The model now writes refs into the cited facts' vocabulary (`line:2/moves/1`), resolved in Rust (`wire.rs`), with one small schema per request kind and no unions or nullable fields. A plain square or SAN that one of the chunk's facts holds is accepted where a ref was expected; the validator still requires it to come from a cited fact.
+  - **Unused slots.** A filled slot that the template does not use no longer fails rule 4, since it puts nothing on screen. A placeholder with no value still fails.
+  - **Piece names.** `{{q0}}`/`{{q1}}` render a piece slot by name only ("the {{q0}}" → "the queen"), so the model has a slot for the wording the drafts use.
+  - **`sideBetter`.** The English lexicon now matches "White/Black/you is/stands … better", "advantage" and "the upper hand", not "the better move".
+  - **Failure details** name what was found ("square", "digit", "piece word queen") instead of echoing the template, so they can be logged.
+  - **Logging.** Narration logs counts per chunk, tokens, the outcome, and validation failures by rule. It never logs a key or the model's text.
 
 ## Questions for upstream
 

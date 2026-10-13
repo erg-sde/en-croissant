@@ -159,11 +159,27 @@ describe("model-written sentences", () => {
                 "relationWithoutClaim",
             ],
             [
-                "a slot the template never uses",
+                "a placeholder whose slot is empty",
                 "queenLost",
                 "??",
-                sentence("{{m0}} is a blunder.", { m0: QG5, m1: NXG5 }, ["line:2"]),
+                sentence("{{m0}} allows {{m1}}.", { m0: QG5 }, ["line:2"]),
                 "literalInTemplate",
+            ],
+            [
+                "a piece name written into the template",
+                "queenLost",
+                "??",
+                sentence("{{m0}} loses the queen.", { m0: QG5 }, ["line:2"]),
+                "literalInTemplate",
+            ],
+            [
+                "a side declared better without the claim",
+                "queenLost",
+                "??",
+                sentence("After {{m0}}, {{side}} is better.", { m0: QG5, side: "white" }, [
+                    "line:2",
+                ]),
+                "sideBetter",
             ],
             [
                 "an equal verdict in a lost position",
@@ -205,6 +221,21 @@ function gameContext(): NarrationRunContext {
     );
     return { tab: "tab", runId: "run", provider: "anthropic", run: r, moves, results, narrative };
 }
+
+describe("what the checker allows", () => {
+    test("a piece by name, an unused slot and 'the better move' pass", () => {
+        const s = sentence(
+            "{{m0}} allows {{m1}}, which wins the {{q0}}; the better move was elsewhere.",
+            { m0: QG5, m1: NXG5, p0: QUEEN, s0: "g5" },
+            ["line:2"],
+            [WINS_QUEEN],
+        );
+        expect(rulesFor("queenLost", "??", s)).toStrictEqual([]);
+        expect(renderSlots(s.template, s.slots, run().t, "en-US").text).toBe(
+            "Qg5 allows Nxg5, which wins the queen; the better move was elsewhere.",
+        );
+    });
+});
 
 describe("narration request", () => {
     test("carries facts and drafts only", () => {

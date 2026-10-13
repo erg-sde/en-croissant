@@ -64,19 +64,37 @@ impl<'a> RefTable<'a> {
             .map(|(_, vocabulary)| (*vocabulary, n))
     }
 
+    fn vocabularies(&self) -> impl Iterator<Item = &'a FactVocabulary> + '_ {
+        self.facts.iter().map(|(_, v)| *v)
+    }
+
+    // A plain value where a ref was expected ("Nxg5", "e5") is accepted when one of the chunk's facts
+    // holds it; the validator still requires it to come from a fact the sentence cites.
     fn move_ref(&self, r: &str) -> Option<MoveRef> {
-        let (v, n) = self.entry(r, "moves")?;
-        v.moves.get(n).cloned()
+        match self.entry(r, "moves") {
+            Some((v, n)) => v.moves.get(n).cloned(),
+            None => self
+                .vocabularies()
+                .find_map(|v| v.moves.iter().find(|m| m.san == r.trim()).cloned()),
+        }
     }
 
     fn piece(&self, r: &str) -> Option<PieceRef> {
-        let (v, n) = self.entry(r, "pieces")?;
-        v.pieces.get(n).cloned()
+        match self.entry(r, "pieces") {
+            Some((v, n)) => v.pieces.get(n).cloned(),
+            None => self
+                .vocabularies()
+                .find_map(|v| v.pieces.iter().find(|p| p.square == r.trim()).cloned()),
+        }
     }
 
     fn square(&self, r: &str) -> Option<String> {
-        let (v, n) = self.entry(r, "squares")?;
-        v.squares.get(n).cloned()
+        match self.entry(r, "squares") {
+            Some((v, n)) => v.squares.get(n).cloned(),
+            None => self
+                .vocabularies()
+                .find_map(|v| v.squares.iter().find(|s| *s == r.trim()).cloned()),
+        }
     }
 
     fn number(&self, r: &str) -> Option<NumberRef> {
