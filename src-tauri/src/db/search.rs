@@ -649,8 +649,11 @@ mod tests {
         let result = get_move_after_match(&game, &None, &query).unwrap();
         assert_eq!(result, Some("e4".to_string()));
 
+        // Exact matches compare the side to move, and a board-only FEN
+        // defaults to White, so the position after 1. e4 needs "b".
         let query =
-            PositionQuery::exact_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR").unwrap();
+            PositionQuery::exact_from_fen("rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b")
+                .unwrap();
         let result = get_move_after_match(&game, &None, &query).unwrap();
         assert_eq!(result, Some("e5".to_string()));
 
