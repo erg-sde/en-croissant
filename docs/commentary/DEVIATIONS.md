@@ -358,6 +358,21 @@ upstream prefers the kibitz wording, it can replace `SYSTEM_PROMPT` with attribu
   of `{ facts, commentary }` per game and a corpus of at least 50 real games, plus LLM runs for the
   model-written half; none of these exist in this session.
 
+### Slice 14 (fork): a verdict for every move
+
+Not in PLAN.md; added at the owner's request so that stepping through a reviewed game says something
+on every move, as chess.com's Game Review does.
+
+- New `CommentaryKind`s `book`, `best`, `excellent`, `good`, `inaccuracy`, `error` ("Mistake") and
+  `blunder`. A move without fuller commentary at the chosen detail level gets a one-line verdict:
+  its glyph's grade, else "book" up to the last named opening position, else "best" for the engine's
+  first choice, else "excellent" (at most 2 points of win chance lost) or "good" (at most 5). A move
+  that is not the engine's choice adds "The engine preferred …", citing the best line.
+- Verdicts cite the `evalDelta` fact and are validated like any sentence. They are not sent for
+  narration and do not take part in the game narrative's selections.
+- The detail setting still decides which moves get full explanations; verdicts cover every other
+  analysed move whatever the setting.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork

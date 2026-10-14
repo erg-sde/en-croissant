@@ -4,7 +4,7 @@ import { getExtendedAnnotation } from "./classify";
 import { commentaryFingerprint, narrativeFingerprint } from "./fingerprint";
 import { gameFacts, type MovesByIndex } from "./gameFacts";
 import { arrowsFor, type NarrationContext, narrateGame, narrateMove } from "./narrate";
-import { selectFacts } from "./salience";
+import { enumerateFacts, selectFacts } from "./salience";
 import type { CommentarySettings } from "./settings";
 import {
     COMMENTARY_SCHEMA_VERSION,
@@ -14,6 +14,7 @@ import {
     type MoveCommentary,
 } from "./types";
 import { validateNarrative, validateSentences } from "./validate";
+import { narrateVerdict, verdictKind } from "./verdict";
 
 export interface CommentaryRun extends NarrationContext {
     settings: Pick<CommentarySettings, "detail" | "extendedGlyphs">;
@@ -22,6 +23,8 @@ export interface CommentaryRun extends NarrationContext {
     /** Piece names of `lang`, for the validator. */
     pieceWords: string[];
     now: number;
+    /** Index of the last position the game follows a named opening through; `null` for none. */
+    bookUntil?: number | null;
 }
 
 export interface MoveCommentaryResult {
@@ -44,12 +47,12 @@ export function buildMoveCommentary(
     const extended = getExtendedAnnotation(facts, glyph, run.settings.extendedGlyphs);
     const selection = selectFacts(facts, glyph, extended, run.settings.detail, run);
     if (!selection) {
-        return { extended, commentary: null, selection: null };
+        return { extended, commentary: verdictCommentary(facts, glyph, extended, run), selection };
     }
     const drafts = narrateMove(selection, facts, run);
     const { narration, result } = validateSentences(drafts, facts, selection, run);
     if (narration.sentences.length === 0) {
-        return { extended, commentary: null, selection };
+        return { extended, commentary: verdictCommentary(facts, glyph, extended, run), selection };
     }
     return {
         extended,
@@ -75,6 +78,54 @@ export function buildMoveCommentary(
         },
     };
 }
+
+/**
+ * The one-line verdict of a move without fuller commentary (see verdict.ts), validated like any
+ * other sentence. `null` for a move that cannot be judged.
+ */
+function verdictCommentary(
+    facts: MoveFacts,
+    glyph: Annotation | null,
+    extended: ExtendedGlyph[],
+    run: CommentaryRun,
+): MoveCommentary | null {
+    const kind = verdictKind(facts, glyph, run.bookUntil ?? null);
+    if (kind === null) return null;
+    const { drafts, factIds } = narrateVerdict(kind, facts, run);
+    const cited = enumerateFacts(facts, run).filter((f) => factIds.includes(f.id));
+    const selection: FactSelection = {
+        index: facts.index,
+        classification: glyph,
+        extended,
+        kind,
+        facts: cited.map(({ id, kind, weight, vocabulary }) => ({ id, kind, weight, vocabulary })),
+        budgetWords: VERDICT_BUDGET,
+    };
+    const { narration, result } = validateSentences(drafts, facts, selection, run);
+    if (narration.sentences.length === 0) return null;
+    return {
+        schemaVersion: COMMENTARY_SCHEMA_VERSION,
+        kind,
+        perspective: run.perspective,
+        narration,
+        arrows: [],
+        fingerprint: commentaryFingerprint(facts, glyph, {
+            detail: run.settings.detail,
+            extendedGlyphs: run.settings.extendedGlyphs,
+            lang: run.lang,
+        }),
+        provenance: {
+            source: "deterministic",
+            generatedAt: run.now,
+            appVersion: run.appVersion,
+            factsSchemaVersion: facts.schemaVersion,
+            validation: result,
+        },
+    };
+}
+
+/** Words a verdict may have. */
+const VERDICT_BUDGET = 20;
 
 /**
  * The deterministic game narrative from the moves' facts and selections. `null` when no sentence

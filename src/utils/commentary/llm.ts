@@ -20,6 +20,7 @@ import type {
     ValidationResult,
 } from "./types";
 import { mergeNarration, validateNarrative, validateSentences } from "./validate";
+import { VERDICT_KINDS } from "./verdict";
 
 /** Everything needed to turn the chunks of one narration run into records. */
 export interface NarrationRunContext {
@@ -45,7 +46,12 @@ function hint(sentences: CommentarySentence[], id: string): string {
 function itemFor(ctx: NarrationRunContext, index: number): NarrationItem | null {
     const result = ctx.results[index];
     const facts = ctx.moves[index];
-    if (!result?.commentary || !result.selection || !facts) {
+    if (
+        !result?.commentary ||
+        !result.selection ||
+        !facts ||
+        VERDICT_KINDS.includes(result.commentary.kind)
+    ) {
         return null;
     }
     const sentences = result.commentary.narration.sentences;

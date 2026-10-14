@@ -151,6 +151,8 @@ function ReportModal({
         appVersion: await getVersion(),
         pieceWords: pieceWords(translate),
         now: Date.now(),
+        bookUntil:
+          analysis.find((entry) => entry.facts?.opening)?.facts?.opening?.lastNamedIndex ?? null,
       };
       const moves = analysis.map((entry, i) =>
         entry.facts ? buildMoveCommentary(entry.facts, glyphs[i], run) : null,

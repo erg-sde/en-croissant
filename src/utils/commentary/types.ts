@@ -145,6 +145,13 @@ const commentaryKind = z.enum([
     "phase",
     "mate",
     "positional",
+    "book",
+    "best",
+    "excellent",
+    "good",
+    "inaccuracy",
+    "error",
+    "blunder",
 ]);
 
 /**

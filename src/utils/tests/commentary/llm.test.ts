@@ -14,6 +14,7 @@ import { buildGameNarrative, buildMoveCommentary } from "@/utils/commentary/repo
 import { renderSlots } from "@/utils/commentary/segmentize";
 import { defaultCommentarySettings } from "@/utils/commentary/settings";
 import { validateSentences } from "@/utils/commentary/validate";
+import { VERDICT_KINDS } from "@/utils/commentary/verdict";
 import games from "./fixtures/gameFacts.json";
 import { type FixtureName, facts, run } from "./helpers";
 
@@ -242,7 +243,10 @@ describe("narration request", () => {
         const ctx = gameContext();
         const request = buildNarrationRequest(ctx);
         expect(Object.keys(request).sort()).toStrictEqual(["game", "items", "lang", "perspective"]);
-        const withCommentary = ctx.results.flatMap((r, i) => (r?.commentary ? [i] : []));
+        // Verdict-only moves stay deterministic and are not sent.
+        const withCommentary = ctx.results.flatMap((r, i) =>
+            r?.commentary && !VERDICT_KINDS.includes(r.commentary.kind) ? [i] : [],
+        );
         expect(request.items.map((i) => i.index)).toStrictEqual(withCommentary);
         const nf6 = request.items.find((i) => i.index === 6)!;
         expect(nf6.san).toBe("Nf6");

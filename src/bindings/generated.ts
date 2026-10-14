@@ -627,7 +627,7 @@ export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; black
 /**
  * Why a move's commentary exists.
  */
-export type CommentaryKind = "mistake" | "evalDrift" | "miss" | "betterMove" | "onlyMove" | "clearlyBest" | "sacrifice" | "mateFound" | "threat" | "opening" | "novelty" | "phase" | "mate" | "positional"
+export type CommentaryKind = "mistake" | "evalDrift" | "miss" | "betterMove" | "onlyMove" | "clearlyBest" | "sacrifice" | "mateFound" | "threat" | "opening" | "novelty" | "phase" | "mate" | "positional" | "book" | "best" | "excellent" | "good" | "inaccuracy" | "error" | "blunder"
 /**
  * What makes the move played stand out among the alternatives. Zero or more per move, in a fixed
  * extractor order.

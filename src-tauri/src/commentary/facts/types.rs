@@ -458,6 +458,14 @@ pub enum CommentaryKind {
     Phase,
     Mate,
     Positional,
+    // One-line verdicts for moves without fuller commentary (frontend only).
+    Book,
+    Best,
+    Excellent,
+    Good,
+    Inaccuracy,
+    Error,
+    Blunder,
 }
 
 /// Whose side "you" is in commentary; `Both` is third person.
