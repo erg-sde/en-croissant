@@ -178,21 +178,40 @@ impl<'a> From<&'a ArchivedSearchGameEntry> for SearchGameEntryRef<'a> {
     }
 }
 
-impl SearchGameEntry {
-    pub fn from_game_data(
-        id: i32,
-        white_id: i32,
-        black_id: i32,
-        date: Option<String>,
-        result: Option<String>,
-        moves: Vec<u8>,
-        fen: Option<String>,
-        pawn_home: i32,
-        white_material: i32,
-        black_material: i32,
-        white_elo: Option<i32>,
-        black_elo: Option<i32>,
-    ) -> Self {
+/// A `games` row as selected when building the search index: id, white_id,
+/// black_id, date, result, moves, fen, pawn_home, white_material,
+/// black_material, white_elo, black_elo.
+pub type GameIndexRow = (
+    i32,
+    i32,
+    i32,
+    Option<String>,
+    Option<String>,
+    Vec<u8>,
+    Option<String>,
+    i32,
+    i32,
+    i32,
+    Option<i32>,
+    Option<i32>,
+);
+
+impl From<GameIndexRow> for SearchGameEntry {
+    fn from(row: GameIndexRow) -> Self {
+        let (
+            id,
+            white_id,
+            black_id,
+            date,
+            result,
+            moves,
+            fen,
+            pawn_home,
+            white_material,
+            black_material,
+            white_elo,
+            black_elo,
+        ) = row;
         Self {
             id,
             white_id,

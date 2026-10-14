@@ -23,8 +23,7 @@ use diesel::{
     insert_into,
     prelude::*,
     r2d2::{ConnectionManager, Pool},
-    sql_query,
-    sql_types::Text,
+    sql_types::Bool,
 };
 use pgn_reader::{BufferedReader, Nag, RawHeader, SanPlus, Skip, Visitor};
 use rayon::prelude::*;
@@ -52,7 +51,9 @@ use tauri_specta::Event as _;
 use self::encoding::{
     encode_comment, encode_move, encode_nag, VARIATION_END_MARKER, VARIATION_START_MARKER,
 };
-pub use self::search_index::{get_index_path, MmapSearchIndex, SearchGameEntry, SearchIndex};
+pub use self::search_index::{
+    get_index_path, GameIndexRow, MmapSearchIndex, SearchGameEntry, SearchIndex,
+};
 
 pub use self::models::NormalizedGame;
 pub use self::models::Puzzle;
@@ -628,20 +629,7 @@ pub fn generate_search_index(
     info!("Generating search index at {:?}", index_path);
     let start = Instant::now();
 
-    let games: Vec<(
-        i32,
-        i32,
-        i32,
-        Option<String>,
-        Option<String>,
-        Vec<u8>,
-        Option<String>,
-        i32,
-        i32,
-        i32,
-        Option<i32>,
-        Option<i32>,
-    )> = games::table
+    let games: Vec<GameIndexRow> = games::table
         .select((
             games::id,
             games::white_id,
@@ -659,36 +647,8 @@ pub fn generate_search_index(
         .load(db)?;
 
     let mut writer = SearchIndex::with_capacity(games.len());
-    for (
-        id,
-        white_id,
-        black_id,
-        date,
-        result,
-        moves,
-        fen,
-        pawn_home,
-        white_material,
-        black_material,
-        white_elo,
-        black_elo,
-    ) in games
-    {
-        let entry = SearchGameEntry::from_game_data(
-            id,
-            white_id,
-            black_id,
-            date,
-            result,
-            moves,
-            fen,
-            pawn_home,
-            white_material,
-            black_material,
-            white_elo,
-            black_elo,
-        );
-        writer.push(entry);
+    for row in games {
+        writer.push(SearchGameEntry::from(row));
     }
     writer.write_to(&index_path)?;
 
@@ -708,16 +668,12 @@ pub struct DatabaseInfo {
     indexed: bool,
 }
 
-#[derive(QueryableByName, Debug, Serialize)]
-struct IndexInfo {
-    #[diesel(sql_type = Text, column_name = "name")]
-    _name: String,
-}
-
 fn check_index_exists(conn: &mut SqliteConnection) -> Result<bool, Error> {
-    let query = sql_query("SELECT name FROM pragma_index_list('Games');");
-    let indexes: Vec<IndexInfo> = query.load(conn)?;
-    Ok(!indexes.is_empty())
+    let exists = diesel::select(diesel::dsl::sql::<Bool>(
+        "EXISTS (SELECT 1 FROM pragma_index_list('Games'))",
+    ))
+    .get_result(conn)?;
+    Ok(exists)
 }
 
 #[tauri::command]
@@ -1952,6 +1908,18 @@ mod tests {
 
         let pawn_home = get_pawn_home(&Board::from_ascii_board_fen(b"8/8/8/8/8/8/8/8").unwrap());
         assert_eq!(pawn_home, 0b0000000000000000);
+    }
+
+    #[test]
+    fn check_index_exists_detects_games_indexes() {
+        let conn = &mut SqliteConnection::establish(":memory:").unwrap();
+        conn.batch_execute("CREATE TABLE Games (id INTEGER PRIMARY KEY, white_id INTEGER);")
+            .unwrap();
+        assert!(!check_index_exists(conn).unwrap());
+
+        conn.batch_execute("CREATE INDEX games_white_id ON Games(white_id);")
+            .unwrap();
+        assert!(check_index_exists(conn).unwrap());
     }
 
     #[test]

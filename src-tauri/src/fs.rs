@@ -20,6 +20,10 @@ use crate::AppState;
 
 #[tauri::command]
 #[specta::specta]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Tauri command; the arguments are its IPC signature used by the frontend bindings"
+)]
 pub async fn download_file(
     id: String,
     url: String,
