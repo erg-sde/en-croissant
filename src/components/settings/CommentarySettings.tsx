@@ -196,7 +196,12 @@ export function NarratorSettings() {
 
   const baseUrlValid = baseUrl.trim() === "" || URL.canParse(baseUrl.trim());
 
+  // Anthropic keys start with "sk-ant-"; anything else would only fail later as a 401.
+  const keyLooksWrong =
+    settings.provider === "anthropic" && key.trim() !== "" && !key.trim().startsWith("sk-ant-");
+
   async function saveKey() {
+    if (keyLooksWrong) return;
     const secret = key;
     setKey("");
     await commands.setCommentarySecret(settings.provider, secret);
@@ -276,9 +281,10 @@ export function NarratorSettings() {
           label={t("Settings.Commentary.Key")}
           value={key}
           autoComplete="off"
+          error={keyLooksWrong ? t("Settings.Commentary.Key.NotAnthropic") : undefined}
           onChange={(event) => setKey(event.currentTarget.value)}
         />
-        <Button disabled={key.trim() === ""} onClick={saveKey}>
+        <Button disabled={key.trim() === "" || keyLooksWrong} onClick={saveKey}>
           {t("Common.Save")}
         </Button>
         <Button variant="default" disabled={!status?.configured} onClick={clearKey}>

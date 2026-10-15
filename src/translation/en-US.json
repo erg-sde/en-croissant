@@ -713,6 +713,7 @@
     "Settings.Commentary.Key.Configured": "Key saved (…{{hint}})",
     "Settings.Commentary.Key.LocalServer": "Local server, no key",
     "Settings.Commentary.Key.Missing": "No key saved",
+    "Settings.Commentary.Key.NotAnthropic": "Anthropic API keys start with sk-ant-",
     "Settings.Commentary.Llm": "Narrate with a language model",
     "Settings.Commentary.Llm.Desc": "Optional: rephrase the offline commentary with Claude or an OpenAI-compatible server such as Ollama",
     "Settings.Commentary.Model": "Model",
