@@ -34,16 +34,19 @@ function ProgressButton({
   inProgress,
   setInProgress,
 }: Props) {
-  const { progress, finished, isActive, clear } = useProgress(id);
-  const completed = initInstalled || finished;
+  const { progress, finished, interrupted, isActive, clear } = useProgress(id);
+  const completed = initInstalled || (finished && !interrupted);
 
   const showProgress = isActive || inProgress;
 
   useEffect(() => {
+    if (interrupted) {
+      clear();
+    }
     if (finished) {
       setInProgress(false);
     }
-  }, [finished, setInProgress]);
+  }, [finished, interrupted, clear, setInProgress]);
 
   const handleCancel = useCallback(() => {
     if (onCancel) {

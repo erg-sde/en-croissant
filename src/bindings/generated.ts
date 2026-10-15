@@ -104,6 +104,18 @@ async getOpeningFromFens(fens: string[]) : Promise<Result<string, string>> {
     else return { status: "error", error: e  as any };
 }
 },
+/**
+ * Finds the last position in `fens` that is in the opening table. Positions are compared
+ * without move counters, so transpositions match; FENs that do not parse are skipped.
+ */
+async getOpeningMatch(fens: string[]) : Promise<Result<OpeningMatch | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_opening_match", { fens }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
 async getOpeningFromName(name: string) : Promise<Result<string, string>> {
     try {
     return { status: "ok", data: await TAURI_INVOKE("get_opening_from_name", { name }) };
@@ -459,6 +471,58 @@ async getSoundServerPort() : Promise<Result<number, string>> {
     if(e instanceof Error) throw e;
     else return { status: "error", error: e  as any };
 }
+},
+async narrateGame(id: string, runId: string, request: NarrationRequest, config: NarratorConfig) : Promise<Result<NarrationRun, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("narrate_game", { id, runId, request, config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+/**
+ * Sends a one-move request and reports why it failed, or `None` when the provider answered with
+ * valid JSON.
+ */
+async testNarrator(config: NarratorConfig) : Promise<Result<NarrationFailure | null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("test_narrator", { config }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async explainPosition(id: string, engine: string, goMode: GoMode, options: ExplainOptions, uciOptions: EngineOption[]) : Promise<Result<PositionExplanation, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("explain_position", { id, engine, goMode, options, uciOptions }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async setCommentarySecret(provider: ProviderKind, secret: string) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("set_commentary_secret", { provider, secret }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async clearCommentarySecret(provider: ProviderKind) : Promise<Result<null, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("clear_commentary_secret", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
+},
+async getCommentarySecretStatus(provider: ProviderKind) : Promise<Result<SecretStatus, string>> {
+    try {
+    return { status: "ok", data: await TAURI_INVOKE("get_commentary_secret_status", { provider }) };
+} catch (e) {
+    if(e instanceof Error) throw e;
+    else return { status: "error", error: e  as any };
+}
 }
 }
 
@@ -471,6 +535,7 @@ clockUpdateEvent: ClockUpdateEvent,
 databaseProgress: DatabaseProgress,
 gameMoveEvent: GameMoveEvent,
 gameOverEvent: GameOverEvent,
+narrationChunk: NarrationChunk,
 progressEvent: ProgressEvent
 }>({
 bestMovesPayload: "best-moves-payload",
@@ -478,19 +543,130 @@ clockUpdateEvent: "clock-update-event",
 databaseProgress: "database-progress",
 gameMoveEvent: "game-move-event",
 gameOverEvent: "game-over-event",
+narrationChunk: "narration-chunk",
 progressEvent: "progress-event"
 })
 
 /** user-defined constants **/
 
-
+export const FACTS_SCHEMA_VERSION = 1 as const;
 
 /** user-defined types **/
 
-export type AnalysisOptions = { fen: string; moves: string[]; annotateNovelties: boolean; referenceDb: string | null; reversed: boolean }
+export type AnalysisOptions = { fen: string; moves: string[]; annotateNovelties: boolean; referenceDb: string | null; reversed: boolean; 
+/**
+ * Lines searched per position, clamped to 2..=4. Defaults to 2.
+ */
+multipv?: number | null; 
+/**
+ * Compute `MoveAnalysis.facts` for every move after the engine pass.
+ */
+withFacts?: boolean; 
+/**
+ * Search what the mover threatens after up to 12 good moves (needs `with_facts`).
+ */
+withThreats?: boolean; 
+/**
+ * Seconds left on the mover's clock after each move, aligned to `moves`.
+ */
+clocks?: (number | null)[] | null; 
+/**
+ * Increment per move in seconds, from the time control.
+ */
+incrementS?: number | null; 
+/**
+ * Initial time in seconds, from the time control.
+ */
+initialS?: number | null }
+export type AttackFact = { from: string; to: string; attacker: PieceKind; target: PieceKind; defended: boolean }
 export type BestMoves = { nodes: number; depth: number; score: Score; uciMoves: string[]; sanMoves: string[]; multipv: number; nps: number }
 export type BestMovesPayload = { bestLines: BestMoves[]; engine: string; tab: string; fen: string; moves: string[]; progress: number }
+/**
+ * What the move changed on the board.
+ */
+export type BoardDelta = { 
+/**
+ * Mover's point of view, pawn units.
+ */
+materialChange: number; 
+/**
+ * Enemy pieces the mover attacks after the move and did not before.
+ */
+newlyAttacked: AttackFact[]; 
+/**
+ * The mover's own pieces that are hanging after the move and were not before.
+ */
+newlyHanging: Motif[]; 
+/**
+ * Change in the number of the mover's pieces attacking the enemy king's zone.
+ */
+kingZoneDelta: number }
+export type BoardFacts = { 
+/**
+ * Pawn units, P1 N3 B3 R5 Q9.
+ */
+material: ByColor<number>; 
+/**
+ * `Motif::Hanging` only.
+ */
+hanging: Motif[]; inCheck: boolean; 
+/**
+ * Enemy pieces attacking each king's zone.
+ */
+kingZoneAttackers: ByColor<number>; pawns: ByColor<PawnFacts>; 
+/**
+ * Files with no pawn of either colour, as letters.
+ */
+openFiles: string[] }
+export type ByColor<T> = { white: T; black: T }
+/**
+ * A relation a sentence asserts, checked against the cited facts.
+ */
+export type Claim = { kind: "attacks"; attacker: PieceRef; target: PieceRef } | { kind: "forks"; attacker: PieceRef; targets: PieceRef[] } | { kind: "pins"; attacker: PieceRef; pinned: PieceRef } | { kind: "hanging"; piece: PieceRef } | { kind: "winsMaterial"; side: Side; pawns: number; line: number } | { kind: "mates"; side: Side; mateIn: number; line: number } | { kind: "better"; side: Side; at: PositionRef } | { kind: "threatens"; side: Side; line: number }
 export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; blackTime: bigint | null }
+/**
+ * Why a move's commentary exists.
+ */
+export type CommentaryKind = "mistake" | "evalDrift" | "miss" | "betterMove" | "onlyMove" | "clearlyBest" | "sacrifice" | "mateFound" | "threat" | "opening" | "novelty" | "phase" | "mate" | "positional" | "book" | "best" | "excellent" | "good" | "inaccuracy" | "error" | "blunder"
+/**
+ * What makes the move played stand out among the alternatives. Zero or more per move, in a fixed
+ * extractor order.
+ */
+export type Criticality = 
+/**
+ * The engine's first choice was played, the second choice is more than 10 points of win
+ * chance worse, and it no longer holds (`second_win` < 50 or it gets mated).
+ */
+{ kind: "onlyMove"; margin: number; secondWin: number } | 
+/**
+ * As `OnlyMove`, but the second choice still holds.
+ */
+{ kind: "clearlyBest"; margin: number } | 
+/**
+ * The move starts a forced mate the position before did not have for the mover.
+ */
+{ kind: "mateFound"; mateIn: number; alternativesAlsoMate: boolean } | 
+/**
+ * The move allows a forced mate against the mover.
+ */
+{ kind: "mateCreated"; mateIn: number } | 
+/**
+ * The mover had a forced mate and the move lets it go.
+ */
+{ kind: "mateLost"; wasMateIn: number } | 
+/**
+ * The mover keeps a forced mate but a longer one.
+ */
+{ kind: "mateDelayed"; from: number; to: number } | 
+/**
+ * The opponent's previous move gave away `gift` points of win chance and this move gave at
+ * least half of it back.
+ */
+{ kind: "miss"; gift: number; givenBack: number } | 
+/**
+ * The move leaves a piece where the opponent wins at least two pawns' worth by exchange.
+ */
+{ kind: "sacrifice"; piece: PieceKind; square: string; see: number; holds: boolean; takenInLine: boolean }
 export type DatabaseInfo = { title: string; description: string; player_count: number; event_count: number; game_count: number; storage_size: bigint; filename: string; indexed: boolean }
 export type DatabaseProgress = { id: string; progress: number }
 export type DrawReason = "stalemate" | "insufficientMaterial" | "threefoldRepetition" | "fiftyMoveRule" | "agreement"
@@ -498,7 +674,51 @@ export type EngineConfig = { name: string; options: UciOptionConfig[] }
 export type EngineLog = { type: "gui"; value: string } | { type: "engine"; value: string }
 export type EngineOption = { name: string; value: string }
 export type EngineOptions = { fen: string; moves: string[]; extraOptions: EngineOption[] }
+export type EvalFacts = { 
+/**
+ * The parent position's best line.
+ */
+before: ExactEval | null; 
+/**
+ * This position's best line, or the game result for a game-over position.
+ */
+after: ExactEval; 
+/**
+ * `before.win - after.win` from the mover's point of view.
+ */
+winDelta: number | null }
+/**
+ * An evaluation from White's point of view. `Mate(n)`: n > 0 means White mates in n moves, n < 0
+ * means Black mates in |n| (UCI moves, not plies).
+ */
+export type EvalValue = { type: "cp"; value: number } | { type: "mate"; value: number }
 export type Event = { id: number; name: string | null }
+/**
+ * An exact evaluation (never a search bound) with the mover's win chance, 0 to 100.
+ */
+export type ExactEval = { value: EvalValue; depth: number; win: number }
+export type ExplainOptions = { fen: string; 
+/**
+ * UCI moves from `fen` to the position to explain.
+ */
+moves: string[]; 
+/**
+ * Lines per position, clamped to 1..=5.
+ */
+multipv: number; withThreat: boolean; 
+/**
+ * Engine threads; 1 when unset.
+ */
+threads: number | null }
+/**
+ * The families of facts a sentence can cite.
+ */
+export type FactKind = "line" | "hanging" | "attack" | "motif" | "criticality" | "evalDelta" | "opening" | "novelty" | "time" | "game"
+/**
+ * The board references a fact permits. A sentence citing the fact may name only these; the
+ * frontend computes it from the fact and the validator checks sentences against it.
+ */
+export type FactVocabulary = { moves: MoveRef[]; pieces: PieceRef[]; squares: string[]; numbers: NumberRef[]; sides: Side[] }
 export type FileMetadata = { last_modified: number }
 export type GameConfig = { white: PlayerConfig; black: PlayerConfig; whiteTimeControl: TimeControl | null; blackTimeControl: TimeControl | null; initialFen: string | null; initialMoves?: string[]; openingBook: OpeningBookConfig | null }
 export type GameEndReason = "checkmate" | "timeout" | "resignation" | "abandonment"
@@ -512,25 +732,289 @@ export type GameSort = "id" | "date" | "whiteElo" | "blackElo" | "ply_count"
 export type GameState = { gameId: string; status: GameStatus; initialFen: string; moves: GameMove[]; currentFen: string; ply: number; turn: string; whiteTime: bigint | null; blackTime: bigint | null; whitePlayer: string; blackPlayer: string }
 export type GameStatus = "playing" | { finished: { result: GameResult } }
 export type GoMode = { t: "PlayersTime"; c: PlayersTime } | { t: "Depth"; c: number } | { t: "Time"; c: number } | { t: "Nodes"; c: number } | { t: "Infinite" }
-export type MoveAnalysis = { best: BestMoves[]; novelty: boolean; is_sacrifice: boolean }
+/**
+ * Why a line was cut where it was.
+ */
+export type LineCut = "mate" | "materialRealized" | "quiet" | "maxPlies" | "engineEnd"
+export type LineFacts = { 
+/**
+ * Index into `MoveFacts.lines`.
+ */
+id: number; origin: LineOrigin; multipv: number; eval: ExactEval; pvSan: string[]; pvUci: string[]; 
+/**
+ * Plies worth showing: the line is cut where its consequence is realized, 2 to 6 plies.
+ */
+shownPlies: number; cutReason: LineCut; outcome: LineOutcome; 
+/**
+ * Motifs found on the positions after each shown ply.
+ */
+motifs: Motif[] }
+/**
+ * Which position a line starts from.
+ */
+export type LineOrigin = 
+/**
+ * The parent position (the alternatives to the move played).
+ */
+"before" | 
+/**
+ * The position after the move (the opponent's best reply).
+ */
+"after" | 
+/**
+ * The position after the move with the turn passed back (what the mover threatens).
+ */
+"threat"
+/**
+ * What a line does: mate (from its evaluation, never from its length), material won along its
+ * PV, or only an evaluation.
+ */
+export type LineOutcome = { kind: "mate"; mateIn: number; pvReachesMate: boolean } | 
+/**
+ * Pawn units won by the side that plays the line's first move.
+ */
+{ kind: "material"; pawns: number; piece: PieceKind | null; atPly: number } | 
+/**
+ * White's point of view.
+ */
+{ kind: "eval"; cp: number }
+/**
+ * A board pattern, described by pieces and squares.
+ */
+export type Motif = 
+/**
+ * One piece attacks two or more targets: the king, more valuable pieces, or hanging pieces.
+ */
+{ kind: "fork"; from: string; attacker: PieceKind; targets: Target[]; isCheck: boolean } | 
+/**
+ * `pinned` cannot move off the line without exposing `behind`; `absolute` when `behind` is
+ * the king.
+ */
+{ kind: "pin"; attacker: string; pinned: string; behind: string; absolute: boolean } | 
+/**
+ * The more valuable `front` is attacked and `behind` falls when it moves.
+ */
+{ kind: "skewer"; attacker: string; front: string; behind: string } | 
+/**
+ * A move from `moved_from` opened the line of the slider on `revealed` to `target`.
+ */
+{ kind: "discoveredAttack"; movedFrom: string; revealed: string; target: string; isCheck: boolean } | 
+/**
+ * A piece that loses material to the best capture on its square (`see` < 0, owner's point of
+ * view) and that can legally be captured.
+ */
+{ kind: "hanging"; square: string; piece: PieceKind; side: Side; see: number } | 
+/**
+ * A piece in a bad spot with no move to a square that is not.
+ */
+{ kind: "trappedPiece"; square: string; piece: PieceKind } | 
+/**
+ * The king is on its back rank with no escape square, facing a rook or queen.
+ */
+{ kind: "backRank"; king: string } | 
+/**
+ * A move from `from` to `to` would mate if the opponent passed.
+ */
+{ kind: "mateThreat"; from: string; to: string } | { kind: "passedPawn"; square: string } | { kind: "promotion"; square: string; to: PieceKind }
+export type MoveAnalysis = { best: BestMoves[]; novelty: boolean; is_sacrifice: boolean; 
+/**
+ * The position that was analysed: the root for index 0, otherwise the position after move i.
+ */
+fen: string; 
+/**
+ * The game is over in this position; it was not searched and `best` is empty.
+ */
+terminal: boolean; 
+/**
+ * What was counted about the move that led here; requested with `with_facts`, never for
+ * index 0.
+ */
+facts?: MoveFacts | null }
+export type MoveFacts = { schemaVersion: number; 
+/**
+ * Index into the report's positions (the position after the move). The frontend joins facts
+ * to tree nodes by `(fen_before, played.san)`, never by this index.
+ */
+index: number; fenBefore: string; fenAfter: string; mover: Side; 
+/**
+ * `fen_after` is checkmate or stalemate: no line was searched from it.
+ */
+terminal: boolean; played: PlayedMoveFacts; eval: EvalFacts; 
+/**
+ * The parent's lines, the best line after the move, and the threat line when searched.
+ */
+lines: LineFacts[]; 
+/**
+ * Index in `lines` of the parent's best line when it differs from the move played.
+ */
+best: number | null; 
+/**
+ * Index in `lines` of the parent's second line.
+ */
+second: number | null; 
+/**
+ * Index in `lines` of the opponent's best reply.
+ */
+refutation: number | null; 
+/**
+ * Index in `lines` of the threat line.
+ */
+threat: number | null; criticality: Criticality[]; before: BoardFacts; after: BoardFacts; delta: BoardDelta; opening: OpeningFacts | null; novelty: boolean; time: TimeFacts | null }
+export type MoveRef = { san: string; side: Side; at: PositionRef }
+export type NarratedGame = { sentences: NarratedSentence[]; takeaways: NarratedTakeaway[] }
+export type NarratedMove = { index: number; 
+/**
+ * Copied from the request item, not from the model.
+ */
+fenBefore?: string; san?: string; sentences: NarratedSentence[] }
+export type NarratedSentence = { template: string; slots: Slots; claims: Claim[]; factIds: string[] }
+export type NarratedTakeaway = { indices: number[]; sentences: NarratedSentence[] }
+/**
+ * One answered request.
+ */
+export type NarrationChunk = { id: string; runId: string; chunk: number; chunks: number; items: NarratedMove[]; narrative: NarratedGame | null; served: Served }
+export type NarrationFact = { id: string; kind: FactKind; vocabulary: FactVocabulary; 
+/**
+ * The deterministic sentence that cited this fact.
+ */
+textHint: string }
+/**
+ * Why a narration request failed. Returned as data, never as a command error, so the frontend can
+ * show it and keep the deterministic commentary.
+ */
+export type NarrationFailure = 
+/**
+ * The provider needs a key and none is stored.
+ */
+{ kind: "noKey" } | 
+/**
+ * The base URL is not `https` and not on this computer.
+ */
+{ kind: "insecureBaseUrl" } | 
+/**
+ * An OpenAI-compatible server needs a base URL.
+ */
+{ kind: "missingBaseUrl" } | { kind: "auth"; detail: { status: number } } | { kind: "rateLimit"; detail: { retryAfterMs: number | null } } | { kind: "network"; detail: { message: Redacted } } | { kind: "provider"; detail: { status: number; message: Redacted } } | { kind: "malformedResponse"; detail: { message: Redacted } } | { kind: "refused"; detail: { category: string | null } } | { kind: "cancelled" }
+export type NarrationGame = { facts: NarrationFact[]; result: string; turningPoints: NarrationItem[] }
+export type NarrationItem = { index: number; fenBefore: string; moveNumber: number; san: string; side: Side; 
+/**
+ * The glyph or classification label, e.g. "??".
+ */
+classification: string; kind: CommentaryKind; budgetWords: number; facts: NarrationFact[] }
+/**
+ * Everything sent to a provider: facts, their vocabulary and draft sentences. Never names,
+ * headers, comments or paths.
+ */
+export type NarrationRequest = { lang: string; perspective: Perspective; game: NarrationGame; items: NarrationItem[] }
+export type NarrationRun = { status: "completed"; chunks: number } | { status: "cancelled"; chunksDone: number } | { status: "failed"; chunksDone: number; failure: NarrationFailure }
+/**
+ * How to reach a model. Crosses IPC, so it has no key field: the key is read from the secret store
+ * in Rust when a request is built.
+ */
+export type NarratorConfig = { provider: ProviderKind; model: string; 
+/**
+ * `None` for the provider's default; `https` unless the host is local.
+ */
+baseUrl: string | null; 
+/**
+ * BCP-47 language of the output, e.g. "pt-PT".
+ */
+language: string; 
+/**
+ * Resolved in the frontend; never "auto" here.
+ */
+perspective: Perspective; budget: WordBudget; 
+/**
+ * Rounds in which the validator's findings are sent back. Reserved; not used yet.
+ */
+repairRounds: number }
 export type NormalizedGame = { id: number; fen: string; event: string; event_id: number; site: string; site_id: number; date?: string | null; time?: string | null; round?: string | null; white: string; white_id: number; white_elo?: number | null; black: string; black_id: number; black_elo?: number | null; result: Outcome; time_control?: string | null; eco?: string | null; ply_count?: number | null; moves: string }
+export type NumberRef = { value: number; unit: NumberUnit }
+export type NumberUnit = "pawns" | "mateIn" | "winPercent" | "move" | 
+/**
+ * Rendered through the frontend's `formatScore`.
+ */
+"eval" | "seconds"
 export type OpeningBookConfig = { path: string; maxPly?: bigint }
+/**
+ * The last position of the game found in the opening table.
+ */
+export type OpeningFacts = { eco: string; name: string; lastNamedIndex: number }
+/**
+ * The deepest position of a game found in the opening table.
+ */
+export type OpeningMatch = { eco: string; name: string; pgn: string | null; 
+/**
+ * Index of the matching position in the list that was searched.
+ */
+index: number }
 export type OutOpening = { name: string; fen: string }
 export type Outcome = "1-0" | "0-1" | "1/2-1/2" | "*"
+export type PawnFacts = { isolated: string[]; doubled: string[]; passed: string[] }
+/**
+ * Whose side "you" is in commentary; `Both` is third person.
+ */
+export type Perspective = "white" | "black" | "both"
+/**
+ * Matches chessops' `Role` strings.
+ */
+export type PieceKind = "pawn" | "knight" | "bishop" | "rook" | "queen" | "king"
+export type PieceRef = { piece: PieceKind; square: string; at: PositionRef }
+export type PlayedMoveFacts = { san: string; uci: string; piece: PieceKind; from: string; to: string; 
+/**
+ * 1 is the engine's first choice; `None` if the move is not among the parent's lines.
+ */
+rank: number | null; isCapture: boolean; captured: PieceKind | null; givesCheck: boolean; givesMate: boolean; isCastle: boolean; promotion: PieceKind | null; 
+/**
+ * Net result of the exchange the capture starts, mover's point of view; `None` for a quiet
+ * move.
+ */
+see: number | null }
 export type Player = { id: number; name: string | null; elo: number | null }
 export type PlayerConfig = { type: "human"; name: string } | { type: "engine"; name: string; path: string; options?: EngineOption[]; go: GoMode | null }
 export type PlayerGameInfo = { site_stats_data: SiteStatsData[] }
 export type PlayerQuery = { options: QueryOptions<PlayerSort>; name?: string | null; range?: [number, number] | null }
 export type PlayerSort = "id" | "name" | "elo"
 export type PlayersTime = { white: number; black: number; winc: number; binc: number }
+export type PositionExplanation = { 
+/**
+ * The parent position's lines (empty for the root).
+ */
+parentLines: BestMoves[]; 
+/**
+ * This position's lines (empty when it is game over).
+ */
+lines: BestMoves[]; 
+/**
+ * What the side that just moved threatens, when searched.
+ */
+threat: BestMoves | null; 
+/**
+ * The facts of the last move; `None` for the root or without an exact line.
+ */
+facts: MoveFacts | null }
 export type PositionQueryJs = { fen: string; type_: string }
+/**
+ * The position a board reference is evaluated in: before the move, after it, or after `ply`
+ * plies of line `id`.
+ */
+export type PositionRef = { t: "before" } | { t: "after" } | { t: "line"; id: number; ply: number }
 export type PositionStats = { move: string; white: number; draw: number; black: number }
-export type ProgressEvent = { id: string; progress: number; finished: boolean }
-export type ProgressItem = { id: string; progress: number; finished: boolean }
+export type ProgressEvent = { id: string; progress: number; finished: boolean; stage?: ProgressStage | null; status?: ProgressStatus | null }
+export type ProgressItem = { id: string; progress: number; finished: boolean; stage?: ProgressStage | null; status?: ProgressStatus | null }
+export type ProgressStage = "engine" | "commentary"
+export type ProgressStatus = "running" | "finished" | "cancelled" | "failed"
+export type ProviderKind = "anthropic" | "openaiCompatible"
 export type Puzzle = { id: number; fen: string; moves: string; rating: number; rating_deviation: number; popularity: number; nb_plays: number }
 export type PuzzleDatabaseInfo = { title: string; description: string; puzzleCount: number; storageSize: bigint; path: string }
 export type QueryOptions<SortT> = { skipCount: boolean; page?: number | null; pageSize?: number | null; sort: SortT; direction: SortDirection }
 export type QueryResponse<T> = { data: T; count: number | null }
+/**
+ * Text that cannot leak a credential: API keys (`sk-...`), bearer tokens and the stored secret are
+ * masked, and the text is cut to 200 characters. Its `Debug` and `Serialize` show only the
+ * redacted form, so even an accidental `log::error!("{:?}", failure)` stays safe.
+ */
+export type Redacted = string
 export type Score = { value: ScoreValue; 
 /**
  * The probability of each result (win, draw, loss).
@@ -545,11 +1029,27 @@ export type ScoreValue =
  * Mate coming up in this many moves. Negative value means the engine is getting mated.
  */
 { type: "mate"; value: number }
+export type SecretStatus = { configured: boolean; 
+/**
+ * The key's last four characters.
+ */
+hint: string | null }
+/**
+ * The model that answered and what it used, from the response.
+ */
+export type Served = { model: string; inputTokens: number; outputTokens: number }
+export type Side = "white" | "black"
 export type Sides = "BlackWhite" | "WhiteBlack" | "Any"
 export type SiteStatsData = { site: string; player: string; data: StatsData[] }
+/**
+ * The values a template's placeholders may take. Fixed names keep the schema closed and flat.
+ */
+export type Slots = { m0: MoveRef | null; m1: MoveRef | null; p0: PieceRef | null; p1: PieceRef | null; s0: string | null; s1: string | null; n0: NumberRef | null; n1: NumberRef | null; side: Side | null; pieces: PieceRef[] }
 export type SortDirection = "asc" | "desc"
 export type StatsData = { date: string; is_player_white: boolean; player_elo: number; result: GameOutcome; time_control: string; opening: string }
+export type Target = { square: string; piece: PieceKind }
 export type TimeControl = { initialTime: bigint; increment: bigint }
+export type TimeFacts = { remainingS: number; spentS: number | null; underPressure: boolean }
 export type Token = { type: "ParenOpen" } | { type: "ParenClose" } | { type: "Comment"; value: string } | { type: "San"; value: string } | { type: "Header"; value: { tag: string; value: string } } | { type: "Nag"; value: string } | { type: "Outcome"; value: string }
 export type TournamentQuery = { options: QueryOptions<TournamentSort>; name: string | null }
 export type TournamentSort = "id" | "name"
@@ -625,6 +1125,10 @@ name: string;
  * The default value of this string option.
  */
 default: string | null } }
+/**
+ * Word limits for one move, a key moment and the game narrative.
+ */
+export type WordBudget = { moveWords: number; keyMomentWords: number; narrativeWords: number }
 
 /** tauri-specta globals **/
 

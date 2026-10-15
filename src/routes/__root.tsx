@@ -17,7 +17,9 @@ import { useTranslation } from "react-i18next";
 import useSWRImmutable from "swr/immutable";
 import { match } from "ts-pattern";
 import type { Dirs } from "@/App";
+import { commands } from "@/bindings";
 import AboutModal from "@/components/About";
+import CommentaryListener from "@/components/common/CommentaryListener";
 import { SideBar } from "@/components/Sidebar";
 import TopBar from "@/components/TopBar";
 import { activeTabAtom, nativeBarAtom, tabsAtom } from "@/state/atoms";
@@ -290,7 +292,10 @@ function RootLayout() {
                 if (res) {
                   localStorage.clear();
                   sessionStorage.clear();
-                  location.reload();
+                  Promise.allSettled([
+                    commands.clearCommentarySecret("anthropic"),
+                    commands.clearCommentarySecret("openaiCompatible"),
+                  ]).finally(() => location.reload());
                 }
               });
             },
@@ -373,6 +378,7 @@ function RootLayout() {
       }}
     >
       <AboutModal opened={opened} setOpened={setOpened} />
+      <CommentaryListener />
       {!isNative &&
         (import.meta.env.VITE_PLATFORM === "win32" ||
           import.meta.env.VITE_PLATFORM === "linux") && (
