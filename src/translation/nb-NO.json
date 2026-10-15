@@ -47,6 +47,7 @@
     "Board.Analysis.Explain.Kept": "",
     "Board.Analysis.Explain.NoEngine": "",
     "Board.Analysis.Explain.Nothing": "",
+    "Board.Analysis.Explain.Root": "",
     "Board.Analysis.GenerateReport": "Lag rapport",
     "Board.Analysis.GeneratingReport": "Lagger rapport",
     "Board.Analysis.InactiveEngine": "Computern er ikke aktivert",

@@ -156,10 +156,16 @@ function ExplainPosition() {
         >
           {t("Board.Analysis.Explain")}
         </Button>
-        {!engine && (
+        {!engine ? (
           <Text size="xs" c="dimmed">
             {t("Board.Analysis.Explain.NoEngine")}
           </Text>
+        ) : (
+          position.length === 0 && (
+            <Text size="xs" c="dimmed">
+              {t("Board.Analysis.Explain.Root")}
+            </Text>
+          )
         )}
       </Group>
       {current?.commentary && (

@@ -47,6 +47,7 @@
     "Board.Analysis.Explain.Kept": "",
     "Board.Analysis.Explain.NoEngine": "",
     "Board.Analysis.Explain.Nothing": "",
+    "Board.Analysis.Explain.Root": "",
     "Board.Analysis.GenerateReport": "Generate report",
     "Board.Analysis.GeneratingReport": "Generating report",
     "Board.Analysis.InactiveEngine": "Engine isn't enabled",

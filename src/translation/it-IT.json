@@ -47,6 +47,7 @@
     "Board.Analysis.Explain.Kept": "",
     "Board.Analysis.Explain.NoEngine": "",
     "Board.Analysis.Explain.Nothing": "",
+    "Board.Analysis.Explain.Root": "",
     "Board.Analysis.GenerateReport": "Genera report",
     "Board.Analysis.GeneratingReport": "Generazione report in corso",
     "Board.Analysis.InactiveEngine": "Motore non attivo",

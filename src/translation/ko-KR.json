@@ -47,6 +47,7 @@
     "Board.Analysis.Explain.Kept": "",
     "Board.Analysis.Explain.NoEngine": "",
     "Board.Analysis.Explain.Nothing": "",
+    "Board.Analysis.Explain.Root": "",
     "Board.Analysis.GenerateReport": "보고서 생성",
     "Board.Analysis.GeneratingReport": "보고서 생성 중",
     "Board.Analysis.InactiveEngine": "엔진이 활성화되지 않음",

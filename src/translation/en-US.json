@@ -47,6 +47,7 @@
     "Board.Analysis.Explain.Kept": "Kept",
     "Board.Analysis.Explain.NoEngine": "Add a local engine to explain positions",
     "Board.Analysis.Explain.Nothing": "Nothing stands out about this move.",
+    "Board.Analysis.Explain.Root": "Go to a move to explain it.",
     "Board.Analysis.GenerateReport": "Generate report",
     "Board.Analysis.GeneratingReport": "Generating report",
     "Board.Analysis.InactiveEngine": "Engine isn't enabled",
