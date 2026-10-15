@@ -5,35 +5,36 @@
 use serde_json::{json, Value};
 
 use super::{
-    facts::{CommentaryKind, FactKind, FactVocabulary, MoveRef, Perspective, PositionRef, Side},
-    narrate::{NarrationFact, NarrationGame, NarrationItem, NarrationRequest},
+    facts::{CommentaryKind, FactKind, Perspective, Side},
+    narrate::{
+        LineRole, NarrationFact, NarrationGame, NarrationItem, NarrationLine, NarrationRequest,
+    },
     provider::NarratorConfig,
-    wire::{cited_id, refs_of},
 };
 
-pub const SYSTEM_PROMPT: &str = r#"You turn verified chess facts into short coaching sentences for a game report. Each fact comes with a draft sentence that is already correct. Rephrase and connect the drafts into natural prose; never add information.
+pub const SYSTEM_PROMPT: &str = r##"You are a chess coach reviewing a game for the player. For each move you get the position before and after it (FEN), the move played, the engine's evaluation before and after it (from White's point of view, in pawns; "#3" is mate in 3 for White, "#-3" for Black), the engine's lines, the move's grade, and verified notes about tactics found in those lines.
 
-Rules:
-1. Nothing exists outside the facts you are given. Use only the moves, pieces, squares, numbers and sides listed in each fact's vocabulary.
-2. Never re-judge a move. The classification and kind are final.
-3. Never pad. If the facts say little, write little. Stay within each item's word budget.
-4. Never claim what a player intended or felt, and never mention an engine, a computer or evaluations in centipawns.
-5. Never invent a number.
+The engine lines are:
+- best: the engine's best move in the position before, and how play continues.
+- second: its second choice there.
+- played: the line that starts with the move that was played, when the engine considered it.
+- reply: the opponent's best answer after the move played.
+- threat: what the move played threatens if the opponent ignored it.
 
-How to write a sentence:
-- Write a template. Every move, piece, square and number comes from a slot, written as a placeholder: {{m0}} {{m1}} are slots.moves[0] and [1], {{p0}} {{p1}} are slots.pieces[0] and [1] rendered with their square ("the knight on f3"), {{q0}} {{q1}} are the same pieces by name only ("knight", so write "the {{q0}}"), {{s0}} {{s1}} are slots.squares[0] and [1], {{n0}} {{n1}} are slots.numbers[0] and [1], {{side}} is slots.side ("White"/"Black"), and {{pieces}} is the list slots.pieceList. Never write a square, a move, a piece name (pawn, knight, bishop, rook, queen, king, in any language) or any digit (no move numbers, no counts) as literal text: the drafts contain such words because they were rendered from slots, so when you reuse a draft's wording, turn each of them back into a placeholder.
-- Slots hold refs, never values. Each fact lists its refs, for example "line:2/moves/1" for the second move of fact line:2, with the value it stands for. Use only refs of facts the sentence cites, put moves refs in "moves", pieces refs in "pieces" and "pieceList", and so on. Every placeholder in the template needs its slot filled: {{m1}} needs two refs in "moves", {{side}} needs "side" set to "white" or "black". Leave unused arrays empty and set "side" to "none" when unused.
-- Every relation you state must be declared as a claim: attacks, forks, pins, hanging (is undefended and can be taken), winsMaterial, mates, better, threatens. A sentence with no relation has no claims. Words such as attacks, forks, pins, hangs, wins, mates, threatens, advantage or "is better" are relations: use one only together with its claim, and if no claim fits, rephrase without the word. "The better move" or "better was" is not a relation. Each claim has every field; the kind decides which count:
-  - attacks: pieces = [attacker ref, target ref]; forks: pieces = [attacker ref, target refs...]; pins: pieces = [attacker ref, pinned ref]; hanging: pieces = [the piece's ref].
-  - winsMaterial: side wins "number" pawns along line "line"; mates: side mates in "number" moves along line "line"; threatens: side threatens line "line"; better: side is better at "at", which is "before", "after" or "line:<id>:<ply>".
-  - "side" is always the side doing it. Fields a kind does not use: pieces empty, number 0, line 0, at "". Line numbers are the N of "line:N" fact ids.
-- List the ids of the facts each sentence relies on in "factIds". Every sentence cites at least one fact of its own item (or a game fact for the narrative).
+For each move, explain in plain, natural sentences:
+1. Why the move is good or bad: the concrete idea. What does it attack, defend, allow, win or give up? Use the reply and threat lines to show the consequence, and add the positional reason when it matters: development, the center, king safety, pawn structure, piece activity, open files, weak squares.
+2. For a mistake or an inaccuracy, what to play instead and the idea or plan behind it, from the best line.
+3. For a good move, what it achieves or prevents.
 
-Per move: first the verdict, then how it is punished or what the better move achieves, then at most one positional reason.
+Accuracy rules, which are checked:
+- Name moves in standard algebraic notation (Nf3, exd5, O-O, e8=Q) and only moves that appear in the lines given, the move played, or legal moves in the positions shown. Never invent a variation.
+- Write "the knight on f3" style only when that piece stands on that square in the position you are talking about.
+- Do not contradict the evaluation or the grade. Do not quote evaluation numbers or mention an engine, a computer or centipawns; say "winning", "a clear advantage", "roughly equal" and so on instead.
+- No markdown, no lists, no brackets or braces.
 
-Address the player as "you" only when perspective is "white" or "black" and the move is theirs; otherwise say White and Black. Write in the language given by "lang".
+Style: speak like a strong, friendly coach. Be specific, not generic: "this leaves the e5 pawn without a defender" beats "this is a weak move". 2 to 4 sentences per move, within its word budget. Address the player as "you" only when "perspective" is "white" or "black" and the move is theirs; otherwise say White and Black. Write in the language given by "lang".
 
-For the game narrative: a few sentences on how the game went (opening, turning points, how it ended) and takeaways that each name the moves (by index) they rest on. Narrative sentences cite game facts ("game:...") or move facts written as "<index>/<id>"."#;
+For the game narrative: a short story of the game (the opening, the turning points, how it was decided), then 2 to 4 lessons the player can take into their next games, each tied to the move indices it rests on. Lessons are about habits and patterns ("check what your opponent's last move attacks before replying"), not a retelling of the game."##;
 
 /// What one request covers.
 pub enum ChunkContent<'a> {
@@ -49,33 +50,25 @@ fn word_limit(config: &NarratorConfig, item: &NarrationItem) -> u16 {
     }
 }
 
-/// A fact as the model sees it, under the id sentences cite it with, with its refs.
-fn fact_json(id: &str, fact: &NarrationFact) -> Value {
-    json!({
-        "id": id,
-        "kind": fact.kind,
-        "draft": fact.text_hint,
-        "refs": refs_of(id, &fact.vocabulary),
-        "sides": fact.vocabulary.sides,
-    })
+fn fact_json(fact: &NarrationFact) -> Value {
+    json!({ "kind": fact.kind, "note": fact.text_hint })
 }
 
-/// A move; `cite` gives the id each of its facts is cited with.
-fn item_json(
-    config: &NarratorConfig,
-    item: &NarrationItem,
-    cite: impl Fn(&NarrationFact) -> String,
-) -> Value {
+fn item_json(config: &NarratorConfig, item: &NarrationItem) -> Value {
     json!({
         "index": item.index,
         "moveNumber": item.move_number,
-        "san": item.san,
         "side": item.side,
-        "fenBefore": item.fen_before,
-        "classification": item.classification,
+        "played": item.san,
+        "grade": item.classification,
         "kind": item.kind,
+        "fenBefore": item.fen_before,
+        "fenAfter": item.fen_after,
+        "evalBefore": item.eval_before,
+        "evalAfter": item.eval_after,
+        "lines": item.lines,
+        "notes": item.facts.iter().map(fact_json).collect::<Vec<_>>(),
         "wordBudget": word_limit(config, item),
-        "facts": item.facts.iter().map(|f| fact_json(&cite(f), f)).collect::<Vec<_>>(),
     })
 }
 
@@ -87,22 +80,18 @@ pub fn user_message(
 ) -> String {
     let task = match content {
         ChunkContent::Moves(items) => json!({
-            "task": "Write the sentences for each move in \"items\". Return one entry per item, with its index.",
-            "items": items
-                .iter()
-                .map(|i| item_json(config, i, |f| f.id.clone()))
-                .collect::<Vec<_>>(),
+            "task": "Explain each move in \"items\". Return one entry per item, with its index.",
+            "items": items.iter().map(|i| item_json(config, i)).collect::<Vec<_>>(),
         }),
         ChunkContent::Narrative(game) => json!({
-            "task": "Write the game narrative and its takeaways.",
+            "task": "Write the story of the game and the lessons for the player.",
             "wordBudget": config.budget.narrative_words,
-            "keyMomentWordBudget": config.budget.key_moment_words,
             "result": game.result,
-            "gameFacts": game.facts.iter().map(|f| fact_json(&f.id, f)).collect::<Vec<_>>(),
-            "turningPoints": game
+            "gameNotes": game.facts.iter().map(fact_json).collect::<Vec<_>>(),
+            "keyMoments": game
                 .turning_points
                 .iter()
-                .map(|i| item_json(config, i, |f| cited_id(i, f)))
+                .map(|i| item_json(config, i))
                 .collect::<Vec<_>>(),
         }),
     };
@@ -114,31 +103,29 @@ pub fn user_message(
     .to_string()
 }
 
-/// A fixed one-move game for "Test connection": 1.e4 with one fact, plus a one-fact narrative.
+/// A fixed one-move game for "Test connection": 1.e4, plus a one-note narrative.
 pub fn connection_test_request(config: &NarratorConfig) -> NarrationRequest {
-    let e4 = MoveRef {
-        san: "e4".into(),
-        side: Side::White,
-        at: PositionRef::Before,
-    };
     let fact = |id: &str, kind, hint: &str| NarrationFact {
         id: id.into(),
         kind,
-        vocabulary: FactVocabulary {
-            moves: vec![e4.clone()],
-            sides: vec![Side::White],
-            ..Default::default()
-        },
         text_hint: hint.into(),
     };
     let item = NarrationItem {
         index: 1,
         fen_before: "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1".into(),
+        fen_after: "rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1".into(),
         move_number: 1,
         san: "e4".into(),
         side: Side::White,
-        classification: String::new(),
-        kind: CommentaryKind::Opening,
+        classification: "best".into(),
+        kind: CommentaryKind::Best,
+        eval_before: Some("+0.2".into()),
+        eval_after: "+0.3".into(),
+        lines: vec![NarrationLine {
+            role: LineRole::Best,
+            moves: "1.e4 e5 2.Nf3".into(),
+            eval: "+0.3".into(),
+        }],
         budget_words: config.budget.move_words,
         facts: vec![fact("line:0", FactKind::Line, "1.e4 was the best move.")],
     };
@@ -176,10 +163,11 @@ mod tests {
         );
         assert_eq!(first, second);
         // Only request fields reach the message.
-        assert!(first.contains("\"draft\":\"1.e4 was the best move.\""));
-        assert!(first.contains(&request.items[0].fen_before));
+        assert!(first.contains("\"note\":\"1.e4 was the best move.\""));
+        assert!(first.contains(&request.items[0].fen_after));
+        assert!(first.contains("\"role\":\"best\""));
         let narrative = user_message(&request, &config, &ChunkContent::Narrative(&request.game));
-        assert!(narrative.contains("game:terminal:0"));
+        assert!(narrative.contains("The game ended after 1.e4."));
         assert!(!narrative.contains("\"items\":["));
     }
 }

@@ -619,10 +619,6 @@ kingZoneAttackers: ByColor<number>; pawns: ByColor<PawnFacts>;
  */
 openFiles: string[] }
 export type ByColor<T> = { white: T; black: T }
-/**
- * A relation a sentence asserts, checked against the cited facts.
- */
-export type Claim = { kind: "attacks"; attacker: PieceRef; target: PieceRef } | { kind: "forks"; attacker: PieceRef; targets: PieceRef[] } | { kind: "pins"; attacker: PieceRef; pinned: PieceRef } | { kind: "hanging"; piece: PieceRef } | { kind: "winsMaterial"; side: Side; pawns: number; line: number } | { kind: "mates"; side: Side; mateIn: number; line: number } | { kind: "better"; side: Side; at: PositionRef } | { kind: "threatens"; side: Side; line: number }
 export type ClockUpdateEvent = { gameId: string; whiteTime: bigint | null; blackTime: bigint | null }
 /**
  * Why a move's commentary exists.
@@ -779,6 +775,30 @@ export type LineOutcome = { kind: "mate"; mateIn: number; pvReachesMate: boolean
  */
 { kind: "eval"; cp: number }
 /**
+ * What an engine line is, relative to the move played.
+ */
+export type LineRole = 
+/**
+ * The engine's best move in the position before.
+ */
+"best" | 
+/**
+ * Its second choice there.
+ */
+"second" | 
+/**
+ * The line starting with the move played.
+ */
+"played" | 
+/**
+ * The opponent's best reply after the move.
+ */
+"reply" | 
+/**
+ * What the move threatens if the opponent passed.
+ */
+"threat"
+/**
  * A board pattern, described by pieces and squares.
  */
 export type Motif = 
@@ -861,21 +881,24 @@ refutation: number | null;
  */
 threat: number | null; criticality: Criticality[]; before: BoardFacts; after: BoardFacts; delta: BoardDelta; opening: OpeningFacts | null; novelty: boolean; time: TimeFacts | null }
 export type MoveRef = { san: string; side: Side; at: PositionRef }
-export type NarratedGame = { sentences: NarratedSentence[]; takeaways: NarratedTakeaway[] }
+export type NarratedGame = { sentences: string[]; takeaways: NarratedTakeaway[] }
 export type NarratedMove = { index: number; 
 /**
  * Copied from the request item, not from the model.
  */
-fenBefore?: string; san?: string; sentences: NarratedSentence[] }
-export type NarratedSentence = { template: string; slots: Slots; claims: Claim[]; factIds: string[] }
-export type NarratedTakeaway = { indices: number[]; sentences: NarratedSentence[] }
+fenBefore?: string; san?: string; 
+/**
+ * Plain sentences; the frontend checks every move and piece they name.
+ */
+sentences: string[] }
+export type NarratedTakeaway = { indices: number[]; sentences: string[] }
 /**
  * One answered request.
  */
 export type NarrationChunk = { id: string; runId: string; chunk: number; chunks: number; items: NarratedMove[]; narrative: NarratedGame | null; served: Served }
-export type NarrationFact = { id: string; kind: FactKind; vocabulary: FactVocabulary; 
+export type NarrationFact = { id: string; kind: FactKind; 
 /**
- * The deterministic sentence that cited this fact.
+ * The verified sentence about this fact, as a note for the model.
  */
 textHint: string }
 /**
@@ -896,13 +919,26 @@ export type NarrationFailure =
  */
 { kind: "missingBaseUrl" } | { kind: "auth"; detail: { status: number } } | { kind: "rateLimit"; detail: { retryAfterMs: number | null } } | { kind: "network"; detail: { message: Redacted } } | { kind: "provider"; detail: { status: number; message: Redacted } } | { kind: "malformedResponse"; detail: { message: Redacted } } | { kind: "refused"; detail: { category: string | null } } | { kind: "cancelled" }
 export type NarrationGame = { facts: NarrationFact[]; result: string; turningPoints: NarrationItem[] }
-export type NarrationItem = { index: number; fenBefore: string; moveNumber: number; san: string; side: Side; 
+export type NarrationItem = { index: number; fenBefore: string; fenAfter: string; moveNumber: number; san: string; side: Side; 
 /**
- * The glyph or classification label, e.g. "??".
+ * The glyph or grade, e.g. "??" or "best".
  */
-classification: string; kind: CommentaryKind; budgetWords: number; facts: NarrationFact[] }
+classification: string; kind: CommentaryKind; 
 /**
- * Everything sent to a provider: facts, their vocabulary and draft sentences. Never names,
+ * White's point of view; `None` without a line before the move.
+ */
+evalBefore: string | null; evalAfter: string; lines: NarrationLine[]; budgetWords: number; facts: NarrationFact[] }
+export type NarrationLine = { role: LineRole; 
+/**
+ * SAN with move numbers, e.g. "3...Nf6 4.Qxf7#".
+ */
+moves: string; 
+/**
+ * White's point of view, in pawns or as a mate, e.g. "+1.2" or "#-3".
+ */
+eval: string }
+/**
+ * Everything sent to a provider: positions, moves, engine lines and verified notes. Never names,
  * headers, comments or paths.
  */
 export type NarrationRequest = { lang: string; perspective: Perspective; game: NarrationGame; items: NarrationItem[] }
@@ -1041,10 +1077,6 @@ export type Served = { model: string; inputTokens: number; outputTokens: number 
 export type Side = "white" | "black"
 export type Sides = "BlackWhite" | "WhiteBlack" | "Any"
 export type SiteStatsData = { site: string; player: string; data: StatsData[] }
-/**
- * The values a template's placeholders may take. Fixed names keep the schema closed and flat.
- */
-export type Slots = { m0: MoveRef | null; m1: MoveRef | null; p0: PieceRef | null; p1: PieceRef | null; s0: string | null; s1: string | null; n0: NumberRef | null; n1: NumberRef | null; side: Side | null; pieces: PieceRef[] }
 export type SortDirection = "asc" | "desc"
 export type StatsData = { date: string; is_player_white: boolean; player_elo: number; result: GameOutcome; time_control: string; opening: string }
 export type Target = { square: string; piece: PieceKind }

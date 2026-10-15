@@ -207,7 +207,6 @@ fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
         .typ::<commentary::facts::FactKind>()
         .typ::<commentary::facts::CommentaryKind>()
         .typ::<commentary::facts::Perspective>()
-        .typ::<commentary::narrate::NarratedSentence>()
         .constant(
             "FACTS_SCHEMA_VERSION",
             commentary::facts::FACTS_SCHEMA_VERSION,
@@ -314,6 +313,15 @@ fn memory_size() -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Writes the bindings without starting the app (which `pnpm dev` would do).
+    #[test]
+    #[ignore = "writes src/bindings/generated.ts"]
+    fn write_bindings() {
+        specta_builder()
+            .export(bindings_exporter(), BINDINGS_PATH)
+            .expect("Failed to export types");
+    }
 
     /// The committed bindings match what the debug build would write, so a Rust type change
     /// without regenerated bindings fails `cargo test`.

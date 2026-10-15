@@ -689,7 +689,7 @@
     "Settings.Commentary.Consent.NeverSent": "Never sent: player names, PGN headers, your comments, file paths and database names.",
     "Settings.Commentary.Consent.Optional": "Narration only runs when you choose it in Generate report. The offline commentary works without it, and every sentence the model writes is checked against the board before it is shown.",
     "Settings.Commentary.Consent.Sent": "When you narrate a report, this is sent to the provider:",
-    "Settings.Commentary.Consent.SentDrafts": "The offline commentary sentences, to be rephrased",
+    "Settings.Commentary.Consent.SentDrafts": "The offline commentary, as notes for the model",
     "Settings.Commentary.Consent.SentEngine": "Engine evaluations and lines",
     "Settings.Commentary.Consent.SentFacts": "Detected tactics, the opening name and the game result",
     "Settings.Commentary.Consent.SentLanguage": "Your interface language and whose side the commentary addresses",

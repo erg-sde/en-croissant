@@ -3,7 +3,7 @@ import type { MoveFacts } from "@/bindings";
 import type { Annotation } from "@/utils/annotation";
 import type { MovesByIndex } from "@/utils/commentary/gameFacts";
 import { buildMoveCommentary } from "@/utils/commentary/report";
-import { verdictKind, VERDICT_KINDS } from "@/utils/commentary/verdict";
+import { verdictKind } from "@/utils/commentary/verdict";
 import games from "./fixtures/gameFacts.json";
 import { facts, run, translator } from "./helpers";
 

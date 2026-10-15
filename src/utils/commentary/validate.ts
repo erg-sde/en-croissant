@@ -1,5 +1,5 @@
 import type { Chess } from "chessops/chess";
-import { parseSan } from "chessops/san";
+import { makeSan, parseSan } from "chessops/san";
 import { parseSquare } from "chessops/util";
 import type {
     FactVocabulary,
@@ -16,7 +16,6 @@ import {
     type GameFacts,
     type MovesByIndex,
 } from "./gameFacts";
-import { claimFailures } from "./claims";
 import type { SentenceDraft } from "./narrate";
 import {
     type EnumeratedFact,
@@ -94,26 +93,6 @@ class Boards {
             ref.t === "before" ? this.facts.fenBefore : this.facts.fenAfter,
         );
         return pos;
-    }
-}
-
-/**
- * Rules 4 (placeholders) and 5 to 7 for model-written sentences, which carry `claims`.
- * Deterministic drafts are correct by construction and skip them.
- */
-function llmRules(
-    draft: SentenceDraft,
-    cited: EnumeratedFact[],
-    facts: MoveFacts | null,
-    lang: string,
-    fail: (rule: ValidationFailure["rule"], detail: string) => void,
-) {
-    if (draft.claims === undefined) return;
-    for (const problem of draft.problems ?? []) fail("literalInTemplate", problem);
-    // The lexicons read the template's own words; `{{side}}` stands for a side ("White is better").
-    const words = draft.template.replace(PLACEHOLDER, (p) => (p === "{{side}}" ? "white" : ""));
-    for (const failure of claimFailures(draft.claims, words, cited, facts, lang)) {
-        fail(failure.rule, failure.detail);
     }
 }
 
@@ -219,7 +198,6 @@ function check(
     // 4. The template carries no chess content of its own.
     const literal = template.replace(PLACEHOLDER, "");
     literalFailures(literal, ctx, fail);
-    llmRules(draft, citedFacts, facts, ctx.lang, fail);
 
     // 8. No markup or jargon, and within budget.
     for (const [pattern, name] of FORBIDDEN) {
@@ -390,19 +368,9 @@ export function validateNarrative(
         }
 
         const literal = template.replace(PLACEHOLDER, "");
-        if (draft.claims !== undefined) {
-            literalFailures(literal, ctx, fail);
-        } else if (SQUARE.test(literal) || DIGIT.test(literal)) {
+        if (SQUARE.test(literal) || DIGIT.test(literal)) {
             fail("literalInTemplate", SQUARE.test(literal) ? "square" : "digit");
         }
-        const moveCitations = cited.flatMap((c) => (c.move ? [c.move] : []));
-        llmRules(
-            draft,
-            moveCitations.map((m) => m.fact),
-            moveCitations[0]?.facts ?? null,
-            ctx.lang,
-            fail,
-        );
         for (const [pattern, name] of FORBIDDEN) {
             if (pattern.test(sentence.text)) fail("forbiddenToken", name);
         }
@@ -432,19 +400,161 @@ export function restoreNarrative(raw: unknown): GameNarrative | null {
 }
 
 /**
- * Model-written sentences that passed validation, followed by the deterministic sentences that
- * cover what the dropped ones were about: every deterministic sentence sharing a cited fact with a
- * dropped sentence and not already cited by a kept one. Both inputs are validated, so the result is.
+ * Unambiguous move tokens in free text: piece moves, pawn captures, promotions and castling, with
+ * any check suffix. Bare squares ("e4") are not checked: they read the same as a square.
  */
-export function mergeNarration(
-    kept: ValidatedNarration,
-    drafts: ValidatedNarration,
-    droppedFactIds: string[],
-): ValidatedNarration {
-    const covered = new Set(kept.sentences.flatMap((s) => s.factIds));
-    const dropped = new Set(droppedFactIds);
-    const fallback = drafts.sentences.filter(
-        (s) => s.factIds.some((id) => dropped.has(id)) && !s.factIds.every((id) => covered.has(id)),
+const MOVE_TOKEN =
+    /(?<![\w-])(O-O-O|O-O|[KQRBN][a-h]?[1-8]?x?[a-h][1-8]|[a-h]x[a-h][1-8](?:=[QRBN])?|[a-h][18]=[QRBN])([+#]?)(?![\w-])/g;
+const PIECE_ON_SQUARE = /\b(pawn|knight|bishop|rook|queen|king)s? on ([a-h][1-8])\b/gi;
+
+function stripCheck(san: string): string {
+    return san.replace(/[+#]+$/, "");
+}
+
+/** The moves a free-text sentence may name, by SAN without check marks. */
+type AllowedMoves = Map<string, MoveRef>;
+
+function allowMove(allowed: AllowedMoves, ref: MoveRef) {
+    const key = stripCheck(ref.san);
+    if (!allowed.has(key)) allowed.set(key, ref);
+}
+
+/** The played move, every move of every engine line, and the legal moves of both positions. */
+function movesOf(facts: MoveFacts, withLegal: boolean): { allowed: AllowedMoves; boards: Chess[] } {
+    const allowed: AllowedMoves = new Map();
+    allowMove(allowed, { san: facts.played.san, side: facts.mover, at: { t: "before" } });
+    const boards: Chess[] = [];
+    for (const line of facts.lines) {
+        const positions = linePositions(facts, line);
+        boards.push(...positions);
+        line.pvSan.forEach((san, ply) => {
+            const side = positions[ply]?.turn;
+            if (side) allowMove(allowed, { san, side, at: { t: "line", id: line.id, ply } });
+        });
+    }
+    for (const [fen, t] of [
+        [facts.fenBefore, "before"],
+        [facts.fenAfter, "after"],
+    ] as const) {
+        const [pos] = positionFromFen(fen);
+        if (!pos) continue;
+        boards.push(pos);
+        if (!withLegal) continue;
+        for (const [from, dests] of pos.allDests()) {
+            for (const to of dests) {
+                const san = makeSan(pos, { from, to });
+                allowMove(allowed, { san, side: pos.turn, at: { t } });
+                if (san.includes("=")) continue;
+                if (pos.board.get(from)?.role === "pawn" && (to >> 3 === 0 || to >> 3 === 7)) {
+                    allowMove(allowed, {
+                        san: makeSan(pos, { from, to, promotion: "queen" }),
+                        side: pos.turn,
+                        at: { t },
+                    });
+                }
+            }
+        }
+    }
+    return { allowed, boards };
+}
+
+/**
+ * Checks one model-written sentence: every move it names must be allowed, every "piece on square"
+ * must stand there in one of `boards` (English only), and no markup or jargon. Returns the moves
+ * it names as references, for the move chips.
+ */
+function checkFreeText(
+    text: string,
+    index: number,
+    allowed: AllowedMoves,
+    boards: Chess[] | null,
+    budgetWords: number,
+    lang: string,
+): { failures: ValidationFailure[]; refs: FactVocabulary } {
+    const failures: ValidationFailure[] = [];
+    const fail = (rule: ValidationFailure["rule"], detail: string) =>
+        failures.push({ rule, sentence: index, detail });
+    const refs: FactVocabulary = { moves: [], pieces: [], squares: [], numbers: [], sides: [] };
+
+    for (const match of text.matchAll(MOVE_TOKEN)) {
+        const ref = allowed.get(match[1]);
+        if (!ref) {
+            fail("moveNotLegalForSide", match[1]);
+        } else if (!refs.moves.some((m) => m.san === match[0])) {
+            // Chips match the move as written, check mark included.
+            refs.moves.push({ ...ref, san: match[0] });
+        }
+    }
+    if (boards && lang.toLowerCase().startsWith("en")) {
+        for (const match of text.matchAll(PIECE_ON_SQUARE)) {
+            const role = match[1].toLowerCase();
+            const square = parseSquare(match[2]);
+            const stands = boards.some(
+                (b) => square !== undefined && b.board.get(square)?.role === role,
+            );
+            if (!stands) fail("pieceNotOnBoard", `${role} ${match[2]}`);
+        }
+    }
+    for (const [pattern, name] of FORBIDDEN) {
+        if (pattern.test(text)) fail("forbiddenToken", name);
+    }
+    if (wordCount(text, lang) > budgetWords * BUDGET_SLACK) {
+        fail("budget", `${wordCount(text, lang)} words`);
+    }
+    return { failures, refs };
+}
+
+function mintFree(
+    sentences: string[],
+    check: (text: string, index: number) => ReturnType<typeof checkFreeText>,
+): { narration: ValidatedNarration; result: ValidationResult } {
+    const failures: ValidationFailure[] = [];
+    const kept: CommentarySentence[] = [];
+    sentences.forEach((text, i) => {
+        const found = check(text, i);
+        if (found.failures.length === 0) kept.push({ text, factIds: [], refs: found.refs });
+        failures.push(...found.failures);
+    });
+    return {
+        narration: { sentences: kept } as ValidatedNarration,
+        result: { checked: sentences.length, dropped: sentences.length - kept.length, failures },
+    };
+}
+
+/**
+ * Validates the free-text explanation of one move: moves named must be the move played, a move of
+ * an engine line, or legal in the position before or after it; pieces named on squares must stand
+ * there. Failing sentences are dropped.
+ */
+export function validateFreeText(
+    sentences: string[],
+    facts: MoveFacts,
+    budgetWords: number,
+    ctx: ValidationContext,
+): { narration: ValidatedNarration; result: ValidationResult } {
+    const { allowed, boards } = movesOf(facts, true);
+    return mintFree(sentences, (text, i) =>
+        checkFreeText(text, i, allowed, boards, budgetWords, ctx.lang),
     );
-    return { sentences: [...kept.sentences, ...fallback] } as ValidatedNarration;
+}
+
+/**
+ * Validates free-text narrative or lesson sentences: every move named must be a move played in the
+ * game or a move of one of its engine lines.
+ */
+export function validateFreeNarrative(
+    sentences: string[],
+    moves: MovesByIndex,
+    ctx: ValidationContext,
+): { narration: ValidatedNarration; result: ValidationResult } {
+    const allowed: AllowedMoves = new Map();
+    for (const facts of moves) {
+        if (!facts) continue;
+        for (const [key, ref] of movesOf(facts, false).allowed) {
+            if (!allowed.has(key)) allowed.set(key, ref);
+        }
+    }
+    return mintFree(sentences, (text, i) =>
+        checkFreeText(text, i, allowed, null, NARRATIVE_BUDGET, ctx.lang),
+    );
 }

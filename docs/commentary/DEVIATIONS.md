@@ -373,6 +373,32 @@ on every move, as chess.com's Game Review does.
 - The detail setting still decides which moves get full explanations; verdicts cover every other
   analysed move whatever the setting.
 
+### Slice 15 (fork): Claude explains moves in its own words
+
+The owner found the facts-only output not useful: it said what happened but not why. This slice
+replaces PLAN.md section 6.4's slot-templated narration and rules 4 to 7 of section 6.5 for
+model-written text:
+
+- **Request.** Each move worth explaining (every move except those graded book, best, excellent or
+  good) goes with its FEN before and after, the evaluation before and after (White's point of view,
+  "+1.2" / "#-3"), the engine lines with their role (best, second, played, reply, threat) as numbered
+  SAN, its grade, and the verified sentences as notes. Fact vocabularies and refs are no longer sent.
+- **Prompt.** Plays the role of a coach: explain why the move is good or bad, the concrete idea and the positional
+  reason, what to play instead and its plan after a mistake, 2 to 4 sentences. The narrative ends
+  with 2 to 4 lessons (habits, not a retelling), each tied to move indices.
+- **Answer.** Plain sentences: `{ items: [{ index, sentences: [string] }] }` and
+  `{ sentences, takeaways: [{ indices, sentences }] }`. `Slots`, `Claim` and `NarratedSentence` are
+  gone from the bindings; `claims.ts` and `renderSlots` are deleted.
+- **Checks (`validateFreeText`).** Every unambiguous move token (piece moves, pawn captures,
+  promotions, castling) must be the move played, a move of one of the move's engine lines, or legal
+  in the position before or after. In English, "the <piece> on <square>" must hold in one of those
+  positions or along a line. Forbidden tokens and the word budget (80 per move) apply. Narrative and
+  lesson sentences may name only moves of the game and its lines. Bare squares and positional claims
+  are not checked; this is the accepted risk of this slice.
+- A coached record replaces the deterministic one for that move. If no sentence passes, the deterministic one
+  stays (there is no per-sentence merge any more).
+- `write_bindings` (ignored test in main.rs) writes the bindings without starting the app.
+
 ## Questions for upstream
 
 Decisions that need the upstream maintainer's input before a slice can be proposed upstream. The fork

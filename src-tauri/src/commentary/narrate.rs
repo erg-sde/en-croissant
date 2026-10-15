@@ -1,6 +1,6 @@
 //! LLM narration: the typed request from the frontend goes out in chunks, each answer comes back as
-//! a `NarrationChunk` event. The model writes sentence templates with slots and declares claims;
-//! the frontend renders and validates them, so nothing here trusts the text.
+//! a `NarrationChunk` event. The model explains moves in plain sentences; the frontend checks every
+//! move and piece they name against the board, so nothing here trusts the text.
 
 use serde::{Deserialize, Serialize};
 use specta::Type;
@@ -8,10 +8,7 @@ use tauri_specta::Event;
 use tokio::sync::watch;
 
 use super::{
-    facts::{
-        CommentaryKind, FactKind, FactVocabulary, MoveRef, NumberRef, Perspective, PieceRef,
-        PositionRef, Side,
-    },
+    facts::{CommentaryKind, FactKind, Perspective, Side},
     prompt::{user_message, ChunkContent, SYSTEM_PROMPT},
     provider::{NarrationFailure, NarratorConfig, Provider, ProviderRequest, Served},
     secrets::{FileStore, SecretStore},
@@ -32,9 +29,34 @@ pub const CHUNK_ITEMS: usize = 12;
 pub struct NarrationFact {
     pub id: String,
     pub kind: FactKind,
-    pub vocabulary: FactVocabulary,
-    /// The deterministic sentence that cited this fact.
+    /// The verified sentence about this fact, as a note for the model.
     pub text_hint: String,
+}
+
+/// What an engine line is, relative to the move played.
+#[derive(Deserialize, Serialize, Debug, Clone, Copy, PartialEq, Eq, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum LineRole {
+    /// The engine's best move in the position before.
+    Best,
+    /// Its second choice there.
+    Second,
+    /// The line starting with the move played.
+    Played,
+    /// The opponent's best reply after the move.
+    Reply,
+    /// What the move threatens if the opponent passed.
+    Threat,
+}
+
+#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct NarrationLine {
+    pub role: LineRole,
+    /// SAN with move numbers, e.g. "3...Nf6 4.Qxf7#".
+    pub moves: String,
+    /// White's point of view, in pawns or as a mate, e.g. "+1.2" or "#-3".
+    pub eval: String,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
@@ -42,12 +64,17 @@ pub struct NarrationFact {
 pub struct NarrationItem {
     pub index: u32,
     pub fen_before: String,
+    pub fen_after: String,
     pub move_number: u32,
     pub san: String,
     pub side: Side,
-    /// The glyph or classification label, e.g. "??".
+    /// The glyph or grade, e.g. "??" or "best".
     pub classification: String,
     pub kind: CommentaryKind,
+    /// White's point of view; `None` without a line before the move.
+    pub eval_before: Option<String>,
+    pub eval_after: String,
+    pub lines: Vec<NarrationLine>,
     pub budget_words: u16,
     pub facts: Vec<NarrationFact>,
 }
@@ -60,7 +87,7 @@ pub struct NarrationGame {
     pub turning_points: Vec<NarrationItem>,
 }
 
-/// Everything sent to a provider: facts, their vocabulary and draft sentences. Never names,
+/// Everything sent to a provider: positions, moves, engine lines and verified notes. Never names,
 /// headers, comments or paths.
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
 #[serde(rename_all = "camelCase")]
@@ -69,70 +96,6 @@ pub struct NarrationRequest {
     pub perspective: Perspective,
     pub game: NarrationGame,
     pub items: Vec<NarrationItem>,
-}
-
-/// The values a template's placeholders may take. Fixed names keep the schema closed and flat.
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Default, Type)]
-pub struct Slots {
-    pub m0: Option<MoveRef>,
-    pub m1: Option<MoveRef>,
-    pub p0: Option<PieceRef>,
-    pub p1: Option<PieceRef>,
-    pub s0: Option<String>,
-    pub s1: Option<String>,
-    pub n0: Option<NumberRef>,
-    pub n1: Option<NumberRef>,
-    pub side: Option<Side>,
-    pub pieces: Vec<PieceRef>,
-}
-
-/// A relation a sentence asserts, checked against the cited facts.
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
-#[serde(tag = "kind", rename_all = "camelCase")]
-pub enum Claim {
-    Attacks {
-        attacker: PieceRef,
-        target: PieceRef,
-    },
-    Forks {
-        attacker: PieceRef,
-        targets: Vec<PieceRef>,
-    },
-    Pins {
-        attacker: PieceRef,
-        pinned: PieceRef,
-    },
-    Hanging {
-        piece: PieceRef,
-    },
-    WinsMaterial {
-        side: Side,
-        pawns: i32,
-        line: u8,
-    },
-    #[serde(rename_all = "camelCase")]
-    Mates {
-        side: Side,
-        mate_in: u8,
-        line: u8,
-    },
-    Better {
-        side: Side,
-        at: PositionRef,
-    },
-    Threatens {
-        side: Side,
-        line: u8,
-    },
-}
-
-#[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct NarratedSentence {
-    pub template: String,
-    pub slots: Slots,
-    pub claims: Vec<Claim>,
-    pub fact_ids: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
@@ -144,20 +107,21 @@ pub struct NarratedMove {
     pub fen_before: String,
     #[serde(default)]
     pub san: String,
-    pub sentences: Vec<NarratedSentence>,
+    /// Plain sentences; the frontend checks every move and piece they name.
+    pub sentences: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NarratedTakeaway {
     pub indices: Vec<u32>,
-    pub sentences: Vec<NarratedSentence>,
+    pub sentences: Vec<String>,
 }
 
 #[derive(Deserialize, Serialize, Debug, Clone, PartialEq, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct NarratedGame {
-    pub sentences: Vec<NarratedSentence>,
+    pub sentences: Vec<String>,
     pub takeaways: Vec<NarratedTakeaway>,
 }
 
@@ -517,8 +481,8 @@ mod tests {
         (run, chunks)
     }
 
-    const MOVE_ANSWER: &str = r#"{"items":[{"index":1,"sentences":[{"template":"{{m0}} opens the game.","slots":{"moves":["line:0/moves/0"],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["line:0"]}]},{"index":99,"sentences":[]}]}"#;
-    const NARRATIVE_ANSWER: &str = r#"{"sentences":[{"template":"{{m0}} ended it.","slots":{"moves":["game:terminal:0/moves/0"],"pieces":[],"squares":[],"numbers":[],"side":"none","pieceList":[]},"claims":[],"factIds":["game:terminal:0"]}],"takeaways":[]}"#;
+    const MOVE_ANSWER: &str = r#"{"items":[{"index":1,"sentences":["e4 opens the game and takes the center."]},{"index":99,"sentences":[]}]}"#;
+    const NARRATIVE_ANSWER: &str = r#"{"sentences":["The game ended after e4."],"takeaways":[]}"#;
 
     #[tokio::test]
     async fn anthropic_chunks_are_emitted_with_positions_from_the_request() {
@@ -708,17 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn claims_use_camel_case_fields() {
-        let claim: Claim =
-            serde_json::from_str(r#"{"kind":"mates","side":"white","mateIn":2,"line":0}"#).unwrap();
-        assert_eq!(
-            claim,
-            Claim::Mates {
-                side: Side::White,
-                mate_in: 2,
-                line: 0
-            }
-        );
+    fn the_run_outcome_is_camel_case() {
         let run = NarrationRun::Failed {
             chunks_done: 1,
             failure: NarrationFailure::NoKey,
