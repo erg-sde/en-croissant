@@ -1,3 +1,4 @@
+import { warn } from "@tauri-apps/plugin-log";
 import { type PersistStorage, type StorageValue } from "zustand/middleware";
 
 const DEBOUNCE_MS = 300;
@@ -5,17 +6,39 @@ const pendingWrites = new Map<string, StorageValue<unknown>>();
 
 let flushTimeout: ReturnType<typeof setTimeout> | null = null;
 let flushHandlersBound = false;
+let failureReported = false;
 
+// Writes every pending entry. An entry that cannot be written (typically a QuotaExceededError) stays
+// pending, so the in-memory state keeps serving reads and the write is retried on the next flush;
+// the other entries are still written. The first failure of a run is logged.
 function flush() {
     if (pendingWrites.size === 0) {
         return;
     }
 
+    let failed = false;
     for (const [name, value] of pendingWrites) {
-        sessionStorage.setItem(name, JSON.stringify(value));
+        try {
+            sessionStorage.setItem(name, JSON.stringify(value));
+            pendingWrites.delete(name);
+        } catch (e) {
+            failed = true;
+            if (!failureReported) {
+                failureReported = true;
+                warn(`Could not save tab state "${name}" to session storage: ${e}`);
+            }
+        }
     }
 
-    pendingWrites.clear();
+    if (!failed) {
+        failureReported = false;
+    }
+}
+
+/** Writes a tab's persisted state immediately, outside a store, with the same failure handling. */
+export function writeSessionState(name: string, value: StorageValue<unknown>) {
+    pendingWrites.set(name, value);
+    flush();
 }
 
 function scheduleFlush(delay: number) {

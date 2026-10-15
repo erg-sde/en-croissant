@@ -36,13 +36,13 @@ export function getWinChance(centipawns: number) {
 }
 
 export function normalizeScore(score: ScoreValue, color: Color): number {
-    let cp = score.value;
-    if (color === "black") {
-        cp *= -1;
-    }
-    if (score.type === "mate") {
-        cp = CP_CEILING * Math.sign(cp);
-    }
+    const sign = color === "black" ? -1 : 1;
+    // A DTZ value counts plies to the next zeroing move in a tablebase result, not centipawns, so it
+    // is decisive like a mate score.
+    const cp = match(score.type)
+        .with("cp", () => score.value * sign)
+        .with("mate", "dtz", () => CP_CEILING * Math.sign(score.value * sign))
+        .exhaustive();
     return minMax(cp, -CP_CEILING, CP_CEILING);
 }
 

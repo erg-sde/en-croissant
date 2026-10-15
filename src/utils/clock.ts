@@ -36,7 +36,7 @@ type ClockInfo = {
     value: number | undefined;
 };
 
-function parseTimeControl(timeControl: string): TimeControl {
+export function parseTimeControl(timeControl: string): TimeControl {
     const fields = timeControl.split(":");
     const timeControlFields: TimeControl = [];
     for (const field of fields) {

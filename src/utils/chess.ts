@@ -4,8 +4,11 @@ import { type Chess, normalizeMove } from "chessops/chess";
 import { INITIAL_FEN, makeFen, parseFen } from "chessops/fen";
 import { isPawns, parseComment } from "chessops/pgn";
 import { makeSan, parseSan } from "chessops/san";
-import { commands, type Outcome, type Score, type Token } from "@/bindings";
+import { commands, type OpeningMatch, type Outcome, type Score, type Token } from "@/bindings";
 import { ANNOTATION_INFO, isBasicAnnotation, NAG_INFO } from "./annotation";
+import type { CommentaryText } from "./commentary/export";
+import { toPgnSafe } from "./commentary/pgnSafe";
+import type { PgnSafeText } from "./commentary/types";
 import { parseSanOrUci, positionFromFen } from "./chessops";
 import { harmonicMean, isPrefix, mean } from "./misc";
 import { formatScore, getAccuracy, getCPLoss, INITIAL_SCORE } from "./score";
@@ -52,6 +55,8 @@ export function getMoveText(
         comments: boolean;
         extraMarkups: boolean;
         isFirst?: boolean;
+        /** Generated commentary, written after the user's comment. */
+        commentary?: PgnSafeText | null;
     },
 ): string {
     const isBlack = tree.halfMoves % 2 === 0;
@@ -71,14 +76,14 @@ export function getMoveText(
             for (const annotation of tree.annotations) {
                 if (annotation === "") continue;
                 moveText += isBasicAnnotation(annotation)
-                    ? tree.annotations
+                    ? annotation
                     : ` $${ANNOTATION_INFO[annotation].nag}`;
             }
         }
         moveText += " ";
     }
 
-    if (opt.comments || opt.extraMarkups) {
+    if (opt.comments || opt.extraMarkups || opt.commentary) {
         let content = "{";
 
         if (opt.extraMarkups) {
@@ -115,7 +120,11 @@ export function getMoveText(
         }
 
         if (opt.comments && tree.comment !== "") {
-            content += tree.comment;
+            content += toPgnSafe(tree.comment);
+        }
+        if (opt.commentary) {
+            content += content.endsWith("{") || content.endsWith(" ") ? "" : " ";
+            content += opt.commentary;
         }
         content += "} ";
 
@@ -225,6 +234,7 @@ export function getPGN(
         extraMarkups,
         root = true,
         path = null,
+        commentary = null,
     }: {
         headers: GameHeaders | null;
         glyphs: boolean;
@@ -233,6 +243,8 @@ export function getPGN(
         extraMarkups: boolean;
         root?: boolean;
         path?: number[] | null;
+        /** Generated commentary per node to export, or `null` to export none. */
+        commentary?: CommentaryText | null;
     },
 ): string {
     if (path && path.length === 0) {
@@ -252,6 +264,7 @@ export function getPGN(
             glyphs,
             comments,
             extraMarkups,
+            commentary: commentary?.(tree),
         })}`;
     }
     const variationsPGN = variations
@@ -262,6 +275,7 @@ export function getPGN(
                       comments,
                       extraMarkups,
                       isFirst: true,
+                      commentary: commentary?.(variation),
                   })} ${getPGN(variation, {
                       headers: null,
                       glyphs,
@@ -270,6 +284,7 @@ export function getPGN(
                       extraMarkups,
                       root: false,
                       path: null,
+                      commentary,
                   })}`,
           )
         : [];
@@ -280,6 +295,7 @@ export function getPGN(
             comments,
             extraMarkups,
             isFirst: root,
+            commentary: commentary?.(child),
         });
     }
     if (!path) {
@@ -297,6 +313,7 @@ export function getPGN(
             extraMarkups,
             root: false,
             path: path ? path.slice(1) : null,
+            commentary,
         });
     }
     if (root && headers) {
@@ -330,7 +347,14 @@ export function parseKeyboardMove(san: string, fen: string) {
     return null;
 }
 
-export async function getOpening(root: TreeNode, position: number[]): Promise<string> {
+/**
+ * The last named opening position on the line from the root to `position`, with its ECO code.
+ * `index` counts positions from the root (0 is the root itself).
+ */
+export async function getOpeningMatch(
+    root: TreeNode,
+    position: number[],
+): Promise<OpeningMatch | null> {
     const fens: string[] = [root.fen];
     let currentNode = root;
 
@@ -342,12 +366,12 @@ export async function getOpening(root: TreeNode, position: number[]): Promise<st
         fens.push(currentNode.fen);
     }
 
-    const res = await commands.getOpeningFromFens(fens);
-    if (res.status !== "error") {
-        return res.data;
-    }
+    const res = await commands.getOpeningMatch(fens);
+    return res.status === "ok" ? res.data : null;
+}
 
-    return "";
+export async function getOpening(root: TreeNode, position: number[]): Promise<string> {
+    return (await getOpeningMatch(root, position))?.name ?? "";
 }
 
 function innerParsePGN(tokens: Token[], fen: string = INITIAL_FEN, halfMoves = 0): TreeState {
@@ -568,7 +592,9 @@ export function getGameStats(root: TreeNode) {
         };
     }
 
-    let prevScore: Score = root.score ?? INITIAL_SCORE;
+    // Losses are measured between consecutive scored plies only: an unscored ply breaks the chain,
+    // so the next scored ply is not charged with two plies of evaluation change.
+    let prevScore: Score | null = root.score ?? INITIAL_SCORE;
     const cplosses: ColorMap<number[]> = {
         white: [],
         black: [],
@@ -590,11 +616,11 @@ export function getGameStats(root: TreeNode) {
             }
         }
         const color = node.halfMoves % 2 === 1 ? "white" : "black";
-        if (node.score) {
+        if (node.score && prevScore) {
             cplosses[color].push(getCPLoss(prevScore.value, node.score.value, color));
             accuracies[color].push(getAccuracy(prevScore.value, node.score.value, color));
-            prevScore = node.score;
         }
+        prevScore = node.score;
     }
     const whiteCPL = mean(cplosses.white);
     const blackCPL = mean(cplosses.black);

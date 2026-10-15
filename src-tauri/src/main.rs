@@ -4,10 +4,12 @@
 )]
 
 mod chess;
+mod commentary;
 mod db;
 mod engine;
 mod error;
 mod game;
+mod jobs;
 
 mod fs;
 mod lexer;
@@ -22,10 +24,16 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use chess::{BestMovesPayload, EngineProcess};
+use commentary::{
+    explain::explain_position,
+    narrate::{narrate_game, test_narrator, NarrationChunk},
+    secrets::{clear_commentary_secret, get_commentary_secret_status, set_commentary_secret},
+};
 use dashmap::DashMap;
 use db::{DatabaseProgress, GameQuery, NormalizedGame, PositionStats};
 use derivative::Derivative;
 use game::GameManager;
+use jobs::JobRegistry;
 use progress::{clear_progress, get_progress, ProgressEvent, ProgressStore};
 
 use log::LevelFilter;
@@ -67,10 +75,10 @@ use crate::{
     },
     fs::{download_file, file_exists, get_file_metadata},
     opening::{
-        get_opening_from_fen, get_opening_from_fens, get_opening_from_name, search_opening_name,
+        get_opening_from_fen, get_opening_from_fens, get_opening_from_name, get_opening_match,
+        search_opening_name,
     },
 };
-use std::sync::atomic::AtomicBool;
 use tokio::sync::Semaphore;
 
 #[derive(Derivative)]
@@ -89,7 +97,7 @@ pub struct AppState {
     pgn_offsets: DashMap<String, Vec<u64>>,
 
     engine_processes: DashMap<(String, String), Arc<tokio::sync::Mutex<EngineProcess>>>,
-    analysis_cancel_flags: DashMap<String, Arc<AtomicBool>>,
+    jobs: JobRegistry,
     auth: AuthState,
     game_manager: GameManager,
     progress_state: ProgressStore,
@@ -106,8 +114,16 @@ async fn close_splashscreen(window: Window) -> Result<(), String> {
     Ok(())
 }
 
-fn main() {
-    let specta_builder = tauri_specta::Builder::new()
+/// Where the debug build writes the TypeScript bindings, relative to `src-tauri`.
+const BINDINGS_PATH: &str = "../src/bindings/generated.ts";
+
+fn bindings_exporter() -> Typescript {
+    Typescript::default().bigint(BigIntExportBehavior::BigInt)
+}
+
+/// Every command, event and extra type the frontend sees.
+fn specta_builder() -> tauri_specta::Builder<tauri::Wry> {
+    tauri_specta::Builder::new()
         .commands(tauri_specta::collect_commands!(
             close_splashscreen,
             get_best_moves,
@@ -122,6 +138,7 @@ fn main() {
             search_opening_name,
             get_opening_from_fen,
             get_opening_from_fens,
+            get_opening_match,
             get_opening_from_name,
             get_players_game_info,
             get_engine_config,
@@ -168,7 +185,13 @@ fn main() {
             preload_reference_db,
             get_progress,
             clear_progress,
-            get_sound_server_port
+            get_sound_server_port,
+            narrate_game,
+            test_narrator,
+            explain_position,
+            set_commentary_secret,
+            clear_commentary_secret,
+            get_commentary_secret_status
         ))
         .events(tauri_specta::collect_events!(
             BestMovesPayload,
@@ -176,15 +199,26 @@ fn main() {
             ProgressEvent,
             GameMoveEvent,
             ClockUpdateEvent,
-            GameOverEvent
-        ));
+            GameOverEvent,
+            NarrationChunk
+        ))
+        // Commentary types the frontend builds and validates against; no command returns them.
+        .typ::<commentary::facts::FactVocabulary>()
+        .typ::<commentary::facts::FactKind>()
+        .typ::<commentary::facts::CommentaryKind>()
+        .typ::<commentary::facts::Perspective>()
+        .constant(
+            "FACTS_SCHEMA_VERSION",
+            commentary::facts::FACTS_SCHEMA_VERSION,
+        )
+}
+
+fn main() {
+    let specta_builder = specta_builder();
 
     #[cfg(debug_assertions)]
     specta_builder
-        .export(
-            Typescript::default().bigint(BigIntExportBehavior::BigInt),
-            "../src/bindings/generated.ts",
-        )
+        .export(bindings_exporter(), BINDINGS_PATH)
         .expect("Failed to export types");
 
     #[cfg(debug_assertions)]
@@ -274,4 +308,36 @@ fn is_bmi2_compatible() -> bool {
 fn memory_size() -> u32 {
     let total_bytes = sysinfo::System::new_all().total_memory();
     (total_bytes / 1024 / 1024) as u32
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Writes the bindings without starting the app (which `pnpm dev` would do).
+    #[test]
+    #[ignore = "writes src/bindings/generated.ts"]
+    fn write_bindings() {
+        specta_builder()
+            .export(bindings_exporter(), BINDINGS_PATH)
+            .expect("Failed to export types");
+    }
+
+    /// The committed bindings match what the debug build would write, so a Rust type change
+    /// without regenerated bindings fails `cargo test`.
+    #[test]
+    fn bindings_are_up_to_date() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("generated.ts");
+        specta_builder()
+            .export(bindings_exporter(), &path)
+            .expect("Failed to export types");
+        let normalize = |text: String| text.replace("\r\n", "\n");
+        let fresh = normalize(std::fs::read_to_string(&path).unwrap());
+        let committed = normalize(std::fs::read_to_string(BINDINGS_PATH).unwrap());
+        assert!(
+            fresh == committed,
+            "src/bindings/generated.ts is stale; run `pnpm dev` once to regenerate it"
+        );
+    }
 }
